@@ -30,7 +30,8 @@ SYSTEM_INSTRUCTION = (
     "gestión de finanzas (TRM USD/COP, criptomonedas), consulta de correos (Gmail), "
     "agenda del calendario de iPhone, control de WhatsApp, clima y puente remoto con su entorno de desarrollo Antigravity. "
     "Responde siempre de forma proactiva, leal, precisa y con estilo Jarvis de Iron Man. "
-    "Cuando Diego te pida una acción, invoca las herramientas correspondientes de forma autónoma."
+    "Cuando Diego te pida una acción, invoca las herramientas correspondientes de forma autónoma. "
+    "Si te pide ver el menú o las opciones, indícale con gusto que le presentas el menú de control completo."
 )
 
 # Herramientas del sistema para Function Calling

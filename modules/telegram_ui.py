@@ -425,6 +425,18 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     user_text = update.message.text
     user_id = update.effective_user.id
+    q_lower = user_text.lower().strip()
+
+    # Detección de solicitud de menú en cualquier variación de lenguaje natural
+    menu_triggers = [
+        "menu", "menú", "/menu", "/start", "opciones", "panel", "dashboard",
+        "muestrame el menu", "muéstrame el menú", "muestra el menu", "muestra el menú",
+        "ver menu", "ver menú", "dame el menu", "dame el menú", "abrir menu", "abrir menú",
+        "menu de opciones", "menú de opciones", "pon el menu", "pon el menú"
+    ]
+    if q_lower in menu_triggers or any(t in q_lower for t in ["muestrame el menu", "muéstrame el menú", "ver menú", "ver menu", "menu de opciones", "menú de opciones"]):
+        await start_command(update, context)
+        return
 
     # Si el usuario seleccionó un repositorio recientemente y su mensaje parece una orden de código
     if user_id in USER_SELECTED_REPO:
@@ -480,7 +492,9 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
                 await update.message.reply_photo(photo=f, caption=result.get("text", ""))
                 return
 
-    await update.message.reply_text(result.get("text", "Nota de voz procesada."), parse_mode=ParseMode.MARKDOWN)
+    reply_text = result.get("text", "Nota de voz procesada.")
+    markup = get_main_keyboard() if any(m in reply_text.lower() for m in ["menú", "menu", "opciones"]) else None
+    await update.message.reply_text(reply_text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
 
 
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
