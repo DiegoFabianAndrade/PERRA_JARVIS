@@ -13,6 +13,7 @@ from telegram.ext import ApplicationBuilder
 from config import TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_ID, ASSISTANT_NAME, DEBUG
 from modules.telegram_ui import register_handlers
 from modules.proactive_monitor import monitor
+from modules import reminder_service
 
 # Configuración de logs
 log_level = logging.DEBUG if DEBUG else logging.INFO
@@ -24,22 +25,47 @@ logger = logging.getLogger(ASSISTANT_NAME)
 
 
 async def proactive_background_task(app):
-    """Tarea proactiva en segundo plano: Vigila batería y eventos cada 2 minutos."""
-    await asyncio.sleep(5)  # Esperar inicio completo
+    """Tarea proactiva en segundo plano: Vigila recordatorios y batería."""
+    await asyncio.sleep(5)
     logger.info("🛡️ Monitor proactivo en segundo plano iniciado.")
+    battery_counter = 0
+
     while True:
         try:
-            alert = monitor.check_battery()
-            if alert:
-                logger.info(f"Enviando alerta proactiva a Telegram: {alert[:30]}...")
+            # 1. Revisar recordatorios que hayan cumplido su hora
+            due_reminders = reminder_service.check_due_reminders()
+            for r in due_reminders:
+                logger.info(f"Disparando recordatorio: {r['text']}")
+                msg = (
+                    "🔔 *¡RECORDATORIO PUNTUAL!* 🔔\n"
+                    "─────────────────────────────\n"
+                    f"📌 *Tarea:* _{r['text']}_\n"
+                    f"⏰ *Programado:* `{r.get('time_str', 'Ahora')}`\n"
+                    "─────────────────────────────"
+                )
                 await app.bot.send_message(
                     chat_id=ALLOWED_CHAT_ID,
-                    text=alert,
+                    text=msg,
                     parse_mode=ParseMode.MARKDOWN
                 )
+
+            # 2. Revisar batería cada 2 minutos (4 ciclos de 30s)
+            battery_counter += 1
+            if battery_counter >= 4:
+                battery_counter = 0
+                alert = monitor.check_battery()
+                if alert:
+                    logger.info(f"Enviando alerta de batería: {alert[:30]}...")
+                    await app.bot.send_message(
+                        chat_id=ALLOWED_CHAT_ID,
+                        text=alert,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+
         except Exception as e:
             logger.error(f"Error en monitor proactivo: {e}")
-        await asyncio.sleep(120)
+
+        await asyncio.sleep(30)
 
 
 async def post_init_callback(app):

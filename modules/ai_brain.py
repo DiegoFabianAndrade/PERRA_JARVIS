@@ -19,6 +19,7 @@ from modules import email_hub
 from modules import calendar_hub
 from modules import whatsapp_controller
 from modules import weather_service
+from modules import reminder_service
 from modules.proactive_monitor import monitor
 
 # gemini-3.5-flash-lite responde en ~0.9s (vs 7.8s de modelos pesados)
@@ -78,6 +79,21 @@ def check_weather() -> str:
     """Consulta el clima en Bogotá."""
     return weather_service.format_weather_summary()
 
+def create_reminder(task_description: str, time_expression: str) -> str:
+    """Programa un recordatorio con notificación push sonora en Telegram para una hora o tiempo específico."""
+    r = reminder_service.add_reminder(task_description, time_expression)
+    return (
+        f"🔔 *RECORDATORIO PROGRAMADO*\n"
+        f"─────────────────────────────\n"
+        f"📌 *Tarea:* _{r['text']}_\n"
+        f"⏰ *Hora:* `{r['due_formatted']}` (en ~{r['minutes_left']} min)\n\n"
+        f"Te enviaré una notificación sonora a Telegram en el momento exacto."
+    )
+
+def list_reminders() -> str:
+    """Consulta los recordatorios activos pendientes."""
+    return reminder_service.format_active_reminders()
+
 def get_daily_briefing() -> str:
     """Genera el briefing diario consolidado."""
     return monitor.get_executive_briefing()
@@ -98,6 +114,8 @@ TOOLS_REGISTRY = {
     "check_emails": check_emails,
     "check_calendar_schedule": check_calendar_schedule,
     "check_weather": check_weather,
+    "create_reminder": create_reminder,
+    "list_reminders": list_reminders,
     "get_daily_briefing": get_daily_briefing,
     "list_dev_projects": list_dev_projects,
 }
@@ -171,9 +189,19 @@ class JarvisBrain:
         if q in ["correos", "correo", "gmail", "bandeja", "revisar correos"]:
             return {"text": email_hub.format_emails_summary()}
 
-        # 10. Calendario iPhone
+        # 10. Calendario iPhone y Recordatorios
         if q in ["calendario", "agenda", "eventos", "mis eventos", "clases"]:
             return {"text": calendar_hub.format_schedule_summary()}
+
+        if q in ["recordatorios", "mis recordatorios", "alarmas", "ver recordatorios"]:
+            return {"text": reminder_service.format_active_reminders()}
+
+        # Detección rápida de recordatorio: "recuérdame a las...", "recuérdame en..."
+        m_rem = re.match(r"^(?:recu[eé]rdame|recordar|recuerda)\s+(?:que\s+)?(.+?)\s+(a\s+las?\s+\d+.*|en\s+\d+.*)$", q)
+        if m_rem:
+            tarea = m_rem.group(1).strip()
+            tiempo = m_rem.group(2).strip()
+            return {"text": create_reminder(tarea, tiempo)}
 
         # 11. Control de Audio
         if "silenciar" in q or "mute" in q:

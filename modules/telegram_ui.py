@@ -33,6 +33,7 @@ from modules import email_hub
 from modules import calendar_hub
 from modules import whatsapp_controller
 from modules import weather_service
+from modules import reminder_service
 from modules.proactive_monitor import monitor
 
 # Memoria temporal de selección de repositorio por usuario
@@ -112,7 +113,10 @@ def get_myday_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("📅 Agenda iPhone", callback_data="act_myday_schedule")
         ],
         [
-            InlineKeyboardButton("🌦️ Clima Bogotá", callback_data="act_myday_weather"),
+            InlineKeyboardButton("🔔 Mis Recordatorios", callback_data="act_myday_reminders"),
+            InlineKeyboardButton("🌦️ Clima Bogotá", callback_data="act_myday_weather")
+        ],
+        [
             InlineKeyboardButton("☀️ Briefing Completo", callback_data="act_briefing")
         ],
         [
@@ -358,6 +362,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     elif data == "act_myday_schedule":
         msg = calendar_hub.format_schedule_summary()
+        await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "act_myday_reminders":
+        msg = reminder_service.format_active_reminders()
         await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
     elif data == "act_myday_weather":
