@@ -1,9 +1,10 @@
 """
 Módulo Antigravity Bridge para PERRA_JARVIS.
-Conecta Telegram directamente con tu entorno de desarrollo y tus proyectos:
-- Inspección remota de repositorios y proyectos en tu máquina.
-- Buzón de órdenes remotas (REMOTE_ORDERS.jsonl).
-- Ejecución remota de compilaciones, pruebas y comandos Git.
+Conecta Telegram directamente con tu entorno de desarrollo, tus repositorios y este agente:
+- Inspección remota de cualquier repositorio en tu PC.
+- Envío de órdenes a este chat/agente especificando el repositorio objetivo.
+- Registro en REMOTE_ORDERS.jsonl y resultados en REMOTE_RESULTS.jsonl.
+- Ejecución remota de comandos Git, compilaciones y pruebas.
 """
 
 import json
@@ -14,6 +15,7 @@ from typing import List, Dict, Any, Optional
 
 from config import ORDERS_FILE, BASE_DIR
 
+RESULTS_FILE = BASE_DIR / "REMOTE_RESULTS.jsonl"
 PROJECTS_DIR = Path.home() / "Downloads"
 
 
@@ -23,7 +25,6 @@ def list_local_projects() -> List[str]:
     if PROJECTS_DIR.exists():
         for d in PROJECTS_DIR.iterdir():
             if d.is_dir() and not d.name.startswith("."):
-                # Detectar si es un repo git o proyecto de código
                 is_git = (d / ".git").exists()
                 is_code = any((d / f).exists() for f in ["pom.xml", "package.json", "requirements.txt", "main.py"])
                 if is_git or is_code:
@@ -59,7 +60,7 @@ def get_project_status(project_name: str) -> str:
         log_out = log_res.stdout.strip()
 
         return (
-            f"📦 *PROYECTO: {project_name}*\n"
+            f"📦 *REPOSITORIO: {project_name}*\n"
             f"─────────────────────────────\n"
             f"🌿 *Rama & Cambios:*\n```\n{status_out if status_out else 'Limpio (sin cambios pendientes)'}\n```\n"
             f"📜 *Últimos Commits:*\n```\n{log_out}\n```\n"
@@ -70,13 +71,13 @@ def get_project_status(project_name: str) -> str:
 
 
 def queue_remote_order(order_text: str, project_name: str = "PERRA_JARVIS") -> Dict[str, Any]:
-    """Registra una orden remota enviada desde el móvil en el buzón."""
+    """Registra una orden remota enviada desde Telegram dirigida a un repositorio específico."""
     order_id = int(time.time())
     order_data = {
         "id": order_id,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "project": project_name,
-        "order": order_text,
+        "repo": project_name.strip(),
+        "order": order_text.strip(),
         "status": "PENDING"
     }
 
@@ -104,11 +105,39 @@ def list_pending_orders() -> List[Dict[str, Any]]:
     return pending
 
 
+def record_order_result(order_id: int, result_text: str, success: bool = True):
+    """Registra el resultado de la ejecución de una orden para retroalimentar a Telegram."""
+    result_data = {
+        "id": order_id,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "success": success,
+        "result": result_text
+    }
+    with open(RESULTS_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(result_data, ensure_ascii=False) + "\n")
+
+    # Marcar como DONE en ORDERS_FILE
+    if ORDERS_FILE.exists():
+        lines = []
+        with open(ORDERS_FILE, "r", encoding="utf-8") as f:
+            for l in f:
+                if l.strip():
+                    try:
+                        d = json.loads(l)
+                        if d.get("id") == order_id:
+                            d["status"] = "DONE"
+                        lines.append(json.dumps(d, ensure_ascii=False) + "\n")
+                    except Exception:
+                        lines.append(l)
+        with open(ORDERS_FILE, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+
 def run_project_command(project_name: str, command: str) -> str:
-    """Ejecuta un comando de desarrollo dentro de la carpeta del proyecto."""
+    """Ejecuta un comando en la carpeta de cualquier repositorio."""
     target_dir = PROJECTS_DIR / project_name
     if not target_dir.exists():
-        return f"⚠️ El proyecto `{project_name}` no existe."
+        return f"⚠️ El proyecto `{project_name}` no existe en Descargas."
 
     try:
         res = subprocess.run(
@@ -120,7 +149,7 @@ def run_project_command(project_name: str, command: str) -> str:
         )
         out = res.stdout if res.stdout else res.stderr
         if not out:
-            out = "Comando completado sin salida en consola."
+            out = "Comando ejecutado sin salida en consola."
         if len(out) > 3000:
             out = out[:3000] + "\n... [Salida truncada]"
         return out
