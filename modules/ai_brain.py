@@ -1,8 +1,8 @@
 """
 Cerebro Inteligente (AI Brain) para PERRA_JARVIS.
 Combina:
-1. Gemini 2.5 Flash / 1.5 Flash (Free Tier) vía google-genai con Function Calling.
-2. Soporte nativo para notas de voz de Telegram (audio multimodal).
+1. Gemini 2.5 Flash (Free Tier) vía google-genai con Function Calling y Visión Multimodal.
+2. Soporte nativo para notas de voz de Telegram y análisis de imágenes enviadas desde el móvil.
 3. Motor de intenciones semánticas local de respaldo (Fallback sin API key).
 """
 
@@ -18,13 +18,15 @@ from modules import antigravity_bridge
 from modules import email_hub
 from modules import calendar_hub
 from modules import whatsapp_controller
+from modules import weather_service
+from modules.proactive_monitor import monitor
 
 SYSTEM_INSTRUCTION = (
-    f"Eres {ASSISTANT_NAME}, el asistente personal inteligente, autónomo y ejecutor de Diego Fabián Andrade. "
-    "Tienes control operativo directo sobre su computador Windows (capturas de pantalla, hardware, apps, volumen, archivos), "
-    "gestión de finanzas (TRM USD/COP, criptomonedas), consulta de correos (Gmail y Outlook), "
-    "agenda del calendario de iPhone, control de WhatsApp y puente remoto con su entorno de desarrollo Antigravity. "
-    "Responde siempre de forma ágil, proactiva, leal y con estilo Jarvis. "
+    f"Eres {ASSISTANT_NAME}, el asistente personal ejecutivo de primer nivel de Diego Fabián Andrade. "
+    "Tienes control operativo directo sobre su computador Windows (capturas, hardware, apps, volumen, archivos), "
+    "gestión de finanzas (TRM USD/COP, criptomonedas), consulta de correos (Gmail), "
+    "agenda del calendario de iPhone, control de WhatsApp, clima y puente remoto con su entorno de desarrollo Antigravity. "
+    "Responde siempre de forma proactiva, leal, precisa y con estilo Jarvis de Iron Man. "
     "Cuando Diego te pida una acción, invoca las herramientas correspondientes de forma autónoma."
 )
 
@@ -71,12 +73,20 @@ def run_powershell_cmd(command: str) -> str:
     return pc_controller.run_command(command)
 
 def check_emails() -> str:
-    """Consulta los correos recientes de Gmail y Outlook institucional."""
+    """Consulta los correos recientes de Gmail."""
     return email_hub.format_emails_summary()
 
 def check_calendar_schedule() -> str:
     """Consulta los eventos y compromisos del calendario de iPhone para hoy y próximos días."""
     return calendar_hub.format_schedule_summary()
+
+def check_weather() -> str:
+    """Consulta el clima actual y pronóstico para Bogotá."""
+    return weather_service.format_weather_summary()
+
+def get_daily_briefing() -> str:
+    """Genera el briefing ejecutivo del día (clima, batería, agenda, correos, finanzas)."""
+    return monitor.get_executive_briefing()
 
 def list_dev_projects() -> str:
     """Lista los proyectos de código y repositorios en el computador de Diego."""
@@ -100,6 +110,8 @@ TOOLS_REGISTRY = {
     "run_powershell_cmd": run_powershell_cmd,
     "check_emails": check_emails,
     "check_calendar_schedule": check_calendar_schedule,
+    "check_weather": check_weather,
+    "get_daily_briefing": get_daily_briefing,
     "list_dev_projects": list_dev_projects,
     "send_whatsapp": send_whatsapp,
 }
@@ -125,7 +137,6 @@ class JarvisBrain:
         """Procesa una orden de texto proveniente de Telegram."""
         text_clean = text.strip()
 
-        # Si tenemos Gemini configurado, usamos el cerebro con IA y Tools
         if self.client:
             try:
                 from google.genai import types
@@ -164,7 +175,6 @@ class JarvisBrain:
             except Exception as e:
                 print(f"Error en llamada a Gemini: {e}")
 
-        # Fallback local
         return self._local_intent_fallback(text_clean)
 
     def process_voice_file(self, voice_path: Path) -> Dict[str, Any]:
@@ -182,7 +192,6 @@ class JarvisBrain:
 
             audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
             instruction = "Transcribe y ejecuta la siguiente orden de Diego como Jarvis."
-
             tools_list = list(TOOLS_REGISTRY.values())
 
             config = types.GenerateContentConfig(
@@ -215,9 +224,35 @@ class JarvisBrain:
         except Exception as e:
             return {"text": f"⚠️ Error al procesar audio con Gemini: {str(e)}"}
 
+    def process_photo(self, photo_bytes: bytes, caption: Optional[str] = None) -> str:
+        """Analiza con Gemini Vision una foto enviada por Diego desde su celular."""
+        if not self.client:
+            return "📸 Recibí tu foto. Para que pueda analizarla visualmente con IA, añade tu `GEMINI_API_KEY` en `.env`."
+
+        try:
+            from google.genai import types
+            img_part = types.Part.from_bytes(data=photo_bytes, mime_type="image/jpeg")
+            prompt = caption if caption else "Analiza esta imagen con detalle y dame la información o solución que necesita Diego."
+
+            response = self.client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[img_part, prompt],
+            )
+            return f"👁️ *Análisis Visual Jarvis:*\n\n{response.text}"
+        except Exception as e:
+            return f"⚠️ Error analizando imagen: {e}"
+
     def _local_intent_fallback(self, query: str) -> Dict[str, Any]:
         """Parser de intenciones locales sin necesidad de API externa."""
         q = query.lower()
+
+        # Briefing Diario
+        if any(w in q for w in ["briefing", "resumen diario", "buenos dias", "buenos días", "mi dia", "mi día"]):
+            return {"text": monitor.get_executive_briefing()}
+
+        # Clima
+        if any(w in q for w in ["clima", "tiempo", "temperatura", "lluvia"]):
+            return {"text": weather_service.format_weather_summary()}
 
         # Pantallazo
         if any(w in q for w in ["pantallazo", "captura", "screenshot", "screen", "pantalla"]):
@@ -229,8 +264,8 @@ class JarvisBrain:
             stats = pc_controller.get_system_stats()
             return {"text": pc_controller.format_stats_message(stats)}
 
-        # Correos (Gmail / Outlook)
-        if any(w in q for w in ["correo", "correos", "email", "emails", "gmail", "outlook", "bandeja"]):
+        # Correos (Gmail)
+        if any(w in q for w in ["correo", "correos", "email", "emails", "gmail", "bandeja"]):
             return {"text": email_hub.format_emails_summary()}
 
         # Calendario / Agenda
@@ -289,8 +324,10 @@ class JarvisBrain:
             "text": (
                 f"🤖 *{ASSISTANT_NAME} activo y escuchando*\n\n"
                 "Puedes darme órdenes por texto, botones o notas de voz:\n"
-                "• *📧 Correos:* '¿Tengo correos nuevos en Gmail o Outlook?'\n"
-                "• *📅 Agenda:* '¿Qué tengo hoy en el calendario de iPhone?'\n"
+                "• *☀️ Briefing:* 'Dame mi briefing diario'\n"
+                "• *🌦️ Clima:* '¿Cómo está el clima en Bogotá?'\n"
+                "• *📧 Correos:* 'Revisa mis correos de Gmail'\n"
+                "• *📅 Agenda:* '¿Qué tengo en el calendario de iPhone?'\n"
                 "• *🧑‍💻 Proyectos:* 'Muéstrame mis repositorios'\n"
                 "• *💬 WhatsApp:* '/wapp 3101234567 Hola amigo'\n"
                 "• *📸 Pantalla:* 'Mándame un pantallazo'\n"
