@@ -1,13 +1,11 @@
 """
 Interfaz de Telegram para PERRA_JARVIS.
 Implementa:
-- Menú táctil con botones interactivos (Inline Keyboards).
-- Filtro estricto de seguridad (Whitelist Chat ID de Diego).
-- Procesamiento de texto libre, comandos y notas de voz.
-- Envío dinámico de capturas de pantalla y gráficos.
+- Menú táctil con botones interactivos expandidos.
+- Whitelist de seguridad para Diego (Chat ID: 1257398092).
+- Soporte para Correo (Gmail/Outlook), Calendario iPhone, WhatsApp y Proyectos.
 """
 
-import os
 from pathlib import Path
 from telegram import (
     Update,
@@ -27,6 +25,10 @@ from config import ALLOWED_CHAT_ID, ASSISTANT_NAME, TEMP_DIR
 from modules.ai_brain import brain
 from modules import pc_controller
 from modules import market_tracker
+from modules import antigravity_bridge
+from modules import email_hub
+from modules import calendar_hub
+from modules import whatsapp_controller
 
 
 def is_authorized(update: Update) -> bool:
@@ -36,11 +38,19 @@ def is_authorized(update: Update) -> bool:
 
 
 def get_main_keyboard() -> InlineKeyboardMarkup:
-    """Construye el teclado táctil principal de Jarvis."""
+    """Construye el teclado táctil maestro de Jarvis."""
     keyboard = [
         [
             InlineKeyboardButton("📸 Pantallazo PC", callback_data="btn_screenshot"),
-            InlineKeyboardButton("💻 Telemetría", callback_data="btn_stats")
+            InlineKeyboardButton("💻 Telemetría PC", callback_data="btn_stats")
+        ],
+        [
+            InlineKeyboardButton("📧 Correos (Gmail/Outlook)", callback_data="btn_emails"),
+            InlineKeyboardButton("📅 Agenda iPhone", callback_data="btn_schedule")
+        ],
+        [
+            InlineKeyboardButton("🧑‍💻 Mis Proyectos IDE", callback_data="btn_projects"),
+            InlineKeyboardButton("💬 WhatsApp Desktop", callback_data="btn_wapp")
         ],
         [
             InlineKeyboardButton("💵 TRM & Cripto", callback_data="btn_trm"),
@@ -63,17 +73,18 @@ def get_main_keyboard() -> InlineKeyboardMarkup:
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manejador del comando /start o /menu."""
     if not is_authorized(update):
-        await update.message.reply_text("⛔ Acceso restringido. Este asistente es personal y privado.")
+        await update.message.reply_text("⛔ Acceso restringido. Este asistente es privado para Diego.")
         return
 
     welcome_text = (
         f"🤖 *¡Hola, Diego! Soy {ASSISTANT_NAME}*\n"
         "─────────────────────────────\n"
-        "Estoy conectado directamente a tu computador Windows y listo para tus órdenes.\n\n"
-        "✨ *¿Qué puedes hacer?*\n"
+        "Tu asistente personal ejecutor con control total de tu PC, correos, agenda y proyectos.\n\n"
+        "✨ *Acciones directas disponibles:*\n"
         "• Toca cualquiera de los **botones táctiles** abajo.\n"
-        "• Escríbeme cualquier orden en **lenguaje natural**.\n"
-        "• O envíame una **nota de voz** desde la calle.\n"
+        "• Mándame una **nota de voz** o escríbeme cualquier orden.\n"
+        "• Escribe `/orden <texto>` para enviarme instrucciones remotas al código.\n"
+        "• Escribe `/wapp <número> <mensaje>` para enviar un WhatsApp desde el PC.\n"
         "─────────────────────────────"
     )
     await update.message.reply_text(
@@ -102,6 +113,30 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "btn_stats":
         stats = pc_controller.get_system_stats()
         msg = pc_controller.format_stats_message(stats)
+        await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "btn_emails":
+        await query.message.reply_text("📬 Consultando bandejas de entrada...")
+        msg = email_hub.format_emails_summary()
+        await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "btn_schedule":
+        msg = calendar_hub.format_schedule_summary()
+        await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "btn_projects":
+        projs = antigravity_bridge.list_local_projects()
+        if not projs:
+            await query.message.reply_text("📁 No se detectaron proyectos en la carpeta Descargas.")
+        else:
+            lines = ["🧑‍💻 *Proyectos de desarrollo en tu PC:*"]
+            for p in projs:
+                lines.append(f"• `/proyecto_{p[:20]}` -> `{p}`")
+            lines.append("\n💡 Escribe `/status <nombre>` para ver rama Git y commits.")
+            await query.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "btn_wapp":
+        msg = whatsapp_controller.get_whatsapp_status_report()
         await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
     elif data == "btn_trm":
@@ -133,20 +168,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await query.message.reply_text(txt)
 
     elif data == "btn_vol_up":
-        res = pc_controller.media_control("up")
-        await query.message.reply_text(res)
+        await query.message.reply_text(pc_controller.media_control("up"))
 
     elif data == "btn_vol_down":
-        res = pc_controller.media_control("down")
-        await query.message.reply_text(res)
+        await query.message.reply_text(pc_controller.media_control("down"))
 
     elif data == "btn_vol_mute":
-        res = pc_controller.media_control("mute")
-        await query.message.reply_text(res)
+        await query.message.reply_text(pc_controller.media_control("mute"))
 
     elif data == "btn_play":
-        res = pc_controller.media_control("play")
-        await query.message.reply_text(res)
+        await query.message.reply_text(pc_controller.media_control("play"))
 
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -156,10 +187,8 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     user_text = update.message.text
-    # Procesar con el cerebro
     result = brain.process_text(user_text)
 
-    # Si la respuesta incluye una foto (captura o gráfica)
     if "photo" in result and result["photo"]:
         photo_path = Path(result["photo"])
         caption = result.get("text", "")
@@ -168,15 +197,13 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_photo(photo=f, caption=caption)
                 return
 
-    # Si es solo texto
     reply_text = result.get("text", "Orden recibida.")
     await update.message.reply_text(reply_text, parse_mode=ParseMode.MARKDOWN)
 
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Manejador de notas de voz enviadas por Diego."""
+    """Manejador de notas de voz de Diego."""
     if not is_authorized(update):
-        await update.message.reply_text("⛔ Acceso restringido.")
         return
 
     voice = update.message.voice
@@ -201,24 +228,80 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def run_cmd_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /run <comando> para ejecutar PowerShell remoto."""
+    """Comando /run <cmd> para PowerShell remoto."""
     if not is_authorized(update):
         return
 
     if not context.args:
-        await update.message.reply_text("Uso: `/run <comando>` (ej. `/run dir` o `/run ipconfig`)", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text("Uso: `/run <comando>` (ej. `/run ipconfig` o `/run dir`)", parse_mode=ParseMode.MARKDOWN)
         return
 
     cmd = " ".join(context.args)
-    await update.message.reply_text(f"⏳ Ejecutando en tu PC: `{cmd}`...", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(f"⏳ Ejecutando: `{cmd}`...", parse_mode=ParseMode.MARKDOWN)
     output = pc_controller.run_command(cmd)
     await update.message.reply_text(f"```\n{output}\n```", parse_mode=ParseMode.MARKDOWN)
 
 
+async def wapp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /wapp <numero> <mensaje> para despachar WhatsApp."""
+    if not is_authorized(update):
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Uso: `/wapp <número> <mensaje>`\nEjemplo: `/wapp 3101234567 Hola, ya voy en camino`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    phone = context.args[0]
+    msg = " ".join(context.args[1:])
+    result = whatsapp_controller.send_whatsapp_message(phone, msg)
+    await update.message.reply_text(result, parse_mode=ParseMode.MARKDOWN)
+
+
+async def order_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /orden <texto> para registrar tareas en el buzón del agente."""
+    if not is_authorized(update):
+        return
+
+    if not context.args:
+        await update.message.reply_text("Uso: `/orden <instrucción para tu proyecto>`\nEjemplo: `/orden Revisa el lab de ARSW y corre las pruebas`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    order_text = " ".join(context.args)
+    order = antigravity_bridge.queue_remote_order(order_text)
+    await update.message.reply_text(
+        f"📝 *Orden registrada en el buzón del agente:*\n\n"
+        f"• *ID:* `{order['id']}`\n"
+        f"• *Orden:* _{order['order']}_\n"
+        f"• *Estado:* `PENDIENTE`\n\n"
+        f"Tu entorno de desarrollo la tomará automáticamente.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+async def project_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /status <proyecto> para ver el estado Git de un proyecto."""
+    if not is_authorized(update):
+        return
+
+    if not context.args:
+        await update.message.reply_text("Uso: `/status <nombre_del_proyecto>`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    p_name = context.args[0]
+    res = antigravity_bridge.get_project_status(p_name)
+    await update.message.reply_text(res, parse_mode=ParseMode.MARKDOWN)
+
+
 def register_handlers(app):
-    """Registra todos los comandos y manejadores en la aplicación de Telegram."""
+    """Registra todos los comandos y manejadores."""
     app.add_handler(CommandHandler(["start", "menu"], start_command))
     app.add_handler(CommandHandler("run", run_cmd_command))
+    app.add_handler(CommandHandler("wapp", wapp_command))
+    app.add_handler(CommandHandler("orden", order_command))
+    app.add_handler(CommandHandler("status", project_status_command))
+    app.add_handler(CommandHandler(["correos", "email"], lambda u, c: handle_text_message(u, c)))
+    app.add_handler(CommandHandler(["agenda", "calendario"], lambda u, c: handle_text_message(u, c)))
+    app.add_handler(CommandHandler("proyectos", lambda u, c: handle_text_message(u, c)))
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
