@@ -16,7 +16,35 @@ from typing import List, Dict, Any, Optional
 from config import ORDERS_FILE, BASE_DIR
 
 RESULTS_FILE = BASE_DIR / "REMOTE_RESULTS.jsonl"
+DASHBOARD_MD = BASE_DIR / "REMOTE_DASHBOARD.md"
 PROJECTS_DIR = Path.home() / "Downloads"
+
+
+def _update_dashboard_md(order_id: int, repo: str, order_text: str, status: str):
+    """Actualiza el archivo markdown de visualización en vivo para el editor."""
+    content = f"""# 📋 Panel de Órdenes Remotas de Telegram (En Vivo)
+
+Este documento refleja en tiempo real las órdenes que envías a tu agente desde tu celular a través de **@PerraJarvis_bot**.
+
+---
+
+### ⏳ Última Orden Registrada:
+- **ID:** `#{order_id}`
+- **Fecha:** `{time.strftime("%Y-%m-%d %H:%M:%S")}`
+- **Repositorio Objetivo:** `{repo}`
+- **Instrucción Enviada:**
+  > *"{order_text}"*
+- **Estado:** `{status}`
+
+---
+
+*💡 Puedes tener este archivo abierto en una pestaña de tu editor para ver tus órdenes en cuanto las envíes desde el celular.*
+"""
+    try:
+        with open(DASHBOARD_MD, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception:
+        pass
 
 
 def list_local_projects() -> List[str]:
@@ -84,6 +112,7 @@ def queue_remote_order(order_text: str, project_name: str = "PERRA_JARVIS") -> D
     with open(ORDERS_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(order_data, ensure_ascii=False) + "\n")
 
+    _update_dashboard_md(order_id, project_name, order_text, "⏳ PENDIENTE DE EJECUCIÓN")
     return order_data
 
 
