@@ -9,7 +9,11 @@ ENV/
 
 # Secrets & Configs
 .env
+*.env
 config.properties
+token.json
+REMOTE_ORDERS.jsonl
+REMOTE_RESULTS.jsonl
 
 # Logs & temp
 *.log
