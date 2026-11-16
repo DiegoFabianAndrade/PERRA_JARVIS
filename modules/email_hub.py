@@ -1,9 +1,6 @@
 """
-Módulo de Correo Electrónico (Email Hub) para PERRA_JARVIS.
-Soporte simultáneo para:
-- Gmail (Personal)
-- Outlook / Office 365 (Escuela Colombiana de Ingeniería)
-Utiliza IMAP SSL seguro nativo de Python para lectura y resúmenes.
+Módulo de Correo Electrónico (Gmail Hub) para PERRA_JARVIS.
+Conecta de forma segura a Gmail vía IMAP SSL nativo.
 """
 
 import imaplib
@@ -11,12 +8,7 @@ import email
 from email.header import decode_header
 from typing import List, Dict, Any, Optional
 
-from config import (
-    GMAIL_USER,
-    GMAIL_APP_PASSWORD,
-    OUTLOOK_USER,
-    OUTLOOK_PASSWORD
-)
+from config import GMAIL_USER, GMAIL_APP_PASSWORD
 
 
 def _decode_mime_str(s: Any) -> str:
@@ -40,35 +32,27 @@ def _decode_mime_str(s: Any) -> str:
         return str(s)
 
 
-def fetch_account_emails(
-    host: str,
-    user: str,
-    password: str,
-    folder: str = "INBOX",
-    limit: int = 5,
-    unread_only: bool = True
-) -> List[Dict[str, Any]]:
-    """Conecta por IMAP SSL y extrae los últimos correos."""
-    if not user or not password:
+def fetch_gmail_emails(limit: int = 5, unread_only: bool = True) -> List[Dict[str, Any]]:
+    """Conecta por IMAP SSL a Gmail y extrae los correos más recientes."""
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         return []
 
+    clean_password = GMAIL_APP_PASSWORD.replace(" ", "").strip()
     emails = []
     mail = None
     try:
-        mail = imaplib.IMAP4_SSL(host, 993, timeout=10)
-        mail.login(user, password)
-        mail.select(folder, readonly=True)
+        mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=10)
+        mail.login(GMAIL_USER, clean_password)
+        mail.select("INBOX", readonly=True)
 
         criterion = "UNSEEN" if unread_only else "ALL"
         status, data = mail.search(None, criterion)
         if status != "OK" or not data[0]:
-            # Si no hay no leídos, buscar los más recientes
             if unread_only:
                 status, data = mail.search(None, "ALL")
 
         if status == "OK" and data[0]:
             msg_ids = data[0].split()
-            # Tomar los últimos 'limit'
             latest_ids = msg_ids[-limit:]
             latest_ids.reverse()
 
@@ -88,7 +72,7 @@ def fetch_account_emails(
                         "date": date_[:16] if len(date_) > 16 else date_
                     })
     except Exception as e:
-        print(f"Error consultando correos en {host}: {e}")
+        print(f"Error consultando Gmail: {e}")
     finally:
         if mail:
             try:
@@ -100,77 +84,35 @@ def fetch_account_emails(
     return emails
 
 
-def get_all_recent_emails(limit: int = 4) -> Dict[str, Any]:
-    """Consulta tanto Gmail como Outlook y consolida los resultados."""
-    results = {
-        "gmail": {
-            "configured": bool(GMAIL_USER and GMAIL_APP_PASSWORD),
-            "user": GMAIL_USER,
-            "emails": []
-        },
-        "outlook": {
-            "configured": bool(OUTLOOK_USER and OUTLOOK_PASSWORD),
-            "user": OUTLOOK_USER,
-            "emails": []
-        }
-    }
-
-    if results["gmail"]["configured"]:
-        results["gmail"]["emails"] = fetch_account_emails(
-            "imap.gmail.com",
-            GMAIL_USER,
-            GMAIL_APP_PASSWORD,
-            limit=limit
-        )
-
-    if results["outlook"]["configured"]:
-        results["outlook"]["emails"] = fetch_account_emails(
-            "outlook.office365.com",
-            OUTLOOK_USER,
-            OUTLOOK_PASSWORD,
-            limit=limit
-        )
-
-    return results
-
-
 def format_emails_summary() -> str:
-    """Genera un reporte resumido de la bandeja de entrada para Telegram."""
-    data = get_all_recent_emails(limit=4)
-    lines = ["📬 *BANDEJA DE ENTRADA - CORREOS*"]
-    lines.append("─────────────────────────────")
+    """Genera un reporte resumido de la bandeja de entrada de Gmail para Telegram."""
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        return (
+            "📧 *BANDEJA DE ENTRADA - GMAIL*\n"
+            "─────────────────────────────\n"
+            "⚠️ _Gmail no está configurado aún._\n\n"
+            "💡 *Configuración en 2 pasos:*\n"
+            "1. Asegúrate de tener activada la **Verificación en 2 pasos** en tu cuenta de Google.\n"
+            "2. En el buscador de tu Cuenta de Google busca **'Contraseñas de aplicaciones'**, genera una para Jarvis y colócala en `.env`:\n"
+            "   `GMAIL_USER=tu_correo@gmail.com`\n"
+            "   `GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx`\n"
+            "─────────────────────────────"
+        )
 
-    has_configured = False
+    emails = fetch_gmail_emails(limit=5)
+    lines = [
+        "📧 *BANDEJA DE ENTRADA - GMAIL*",
+        f"👤 Cuenta: `{GMAIL_USER}`",
+        "─────────────────────────────"
+    ]
 
-    # Sección Gmail
-    gm = data["gmail"]
-    if gm["configured"]:
-        has_configured = True
-        lines.append(f"🔴 *Gmail:* `{gm['user']}`")
-        if gm["emails"]:
-            for e in gm["emails"]:
-                lines.append(f"• *{e['subject']}*\n  De: `{e['from']}` ({e['date']})")
-        else:
-            lines.append("  _Bandeja al día (sin correos nuevos)._")
-        lines.append("")
+    if not emails:
+        lines.append("🎉 _¡Bandeja al día! No tienes correos sin leer._")
     else:
-        lines.append("🔴 *Gmail:* _No configurado en .env (requiere GMAIL_USER y GMAIL_APP_PASSWORD)_")
-
-    # Sección Outlook
-    out = data["outlook"]
-    if out["configured"]:
-        has_configured = True
-        lines.append(f"🔵 *Outlook / Escuela:* `{out['user']}`")
-        if out["emails"]:
-            for e in out["emails"]:
-                lines.append(f"• *{e['subject']}*\n  De: `{e['from']}` ({e['date']})")
-        else:
-            lines.append("  _Bandeja al día (sin correos nuevos)._")
-    else:
-        lines.append("🔵 *Outlook:* _No configurado en .env (requiere OUTLOOK_USER y OUTLOOK_PASSWORD)_")
+        for i, e in enumerate(emails, 1):
+            lines.append(f"{i}. *{e['subject']}*")
+            lines.append(f"   De: `{e['from']}`")
+            lines.append(f"   📅 `{e['date']}`\n")
 
     lines.append("─────────────────────────────")
-    if not has_configured:
-        lines.append("💡 *Tip de configuración:* Añade tus credenciales en `.env` para ver tus correos al instante.")
-
     return "\n".join(lines)

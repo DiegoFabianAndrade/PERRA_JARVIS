@@ -25,11 +25,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 ASSISTANT_NAME = os.getenv("ASSISTANT_NAME", "PERRA_JARVIS").strip()
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
-# Correo (Gmail y Outlook)
+# Correo (Solo Gmail)
 GMAIL_USER = os.getenv("GMAIL_USER", "").strip()
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").strip()
-OUTLOOK_USER = os.getenv("OUTLOOK_USER", "").strip()
-OUTLOOK_PASSWORD = os.getenv("OUTLOOK_PASSWORD", "").strip()
 
 # Calendario iPhone (iCloud)
 ICLOUD_CALENDAR_URL = os.getenv("ICLOUD_CALENDAR_URL", "").strip()

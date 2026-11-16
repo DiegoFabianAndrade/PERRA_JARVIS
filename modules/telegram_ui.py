@@ -45,7 +45,7 @@ def get_main_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("💻 Telemetría PC", callback_data="btn_stats")
         ],
         [
-            InlineKeyboardButton("📧 Correos (Gmail/Outlook)", callback_data="btn_emails"),
+            InlineKeyboardButton("📧 Correos Gmail", callback_data="btn_emails"),
             InlineKeyboardButton("📅 Agenda iPhone", callback_data="btn_schedule")
         ],
         [
