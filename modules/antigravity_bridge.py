@@ -133,6 +133,42 @@ def record_order_result(order_id: int, result_text: str, success: bool = True):
             f.writelines(lines)
 
 
+DELIVERED_RESULTS_FILE = BASE_DIR / "temp" / "delivered_results.json"
+
+
+def check_undelivered_results() -> List[Dict[str, Any]]:
+    """Devuelve resultados de órdenes que aún no han sido entregados a Telegram."""
+    if not RESULTS_FILE.exists():
+        return []
+
+    delivered_ids = set()
+    if DELIVERED_RESULTS_FILE.exists():
+        try:
+            with open(DELIVERED_RESULTS_FILE, "r", encoding="utf-8") as f:
+                delivered_ids = set(json.load(f))
+        except Exception:
+            pass
+
+    undelivered = []
+    with open(RESULTS_FILE, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                try:
+                    d = json.loads(line)
+                    if d.get("id") not in delivered_ids:
+                        undelivered.append(d)
+                        delivered_ids.add(d.get("id"))
+                except Exception:
+                    continue
+
+    if undelivered:
+        DELIVERED_RESULTS_FILE.parent.mkdir(exist_ok=True)
+        with open(DELIVERED_RESULTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(list(delivered_ids), f)
+
+    return undelivered
+
+
 def run_project_command(project_name: str, command: str) -> str:
     """Ejecuta un comando en la carpeta de cualquier repositorio."""
     target_dir = PROJECTS_DIR / project_name

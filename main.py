@@ -14,6 +14,7 @@ from config import TELEGRAM_BOT_TOKEN, ALLOWED_CHAT_ID, ASSISTANT_NAME, DEBUG
 from modules.telegram_ui import register_handlers
 from modules.proactive_monitor import monitor
 from modules import reminder_service
+from modules import antigravity_bridge
 
 # Configuración de logs
 log_level = logging.DEBUG if DEBUG else logging.INFO
@@ -46,6 +47,16 @@ async def proactive_background_task(app):
                 await app.bot.send_message(
                     chat_id=ALLOWED_CHAT_ID,
                     text=msg,
+                    parse_mode=ParseMode.MARKDOWN
+                )
+
+            # 2. Revisar si el agente completó órdenes remotas
+            new_results = antigravity_bridge.check_undelivered_results()
+            for res in new_results:
+                logger.info(f"Entregando resultado de orden #{res['id']} a Telegram")
+                await app.bot.send_message(
+                    chat_id=ALLOWED_CHAT_ID,
+                    text=res["result"],
                     parse_mode=ParseMode.MARKDOWN
                 )
 
