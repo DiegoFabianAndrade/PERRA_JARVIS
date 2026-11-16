@@ -15,7 +15,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup
 )
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
 from telegram.ext import (
     ContextTypes,
     CommandHandler,
@@ -455,7 +455,13 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
+    # Visual feedback inmediato (Escribiendo...)
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     result = brain.process_text(user_text)
+
+    if result.get("action") == "SHOW_MENU":
+        await start_command(update, context)
+        return
 
     if "photo" in result and result["photo"]:
         photo_path = Path(result["photo"])
