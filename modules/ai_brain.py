@@ -1,9 +1,10 @@
 """
 Cerebro Inteligente (AI Brain) para PERRA_JARVIS.
 Combina:
-1. Gemini 2.5 Flash (Free Tier) vía google-genai con Function Calling y Visión Multimodal.
+1. Modelos Gemini de última generación (gemini-3.5-flash y gemini-3.8-flash) con Function Calling y Visión.
 2. Soporte nativo para notas de voz de Telegram y análisis de imágenes enviadas desde el móvil.
-3. Motor de intenciones semánticas local de respaldo (Fallback sin API key).
+3. Resiliencia con conmutación por error entre modelos (Model Fallback).
+4. Motor de intenciones semánticas local de respaldo.
 """
 
 import os
@@ -20,6 +21,8 @@ from modules import calendar_hub
 from modules import whatsapp_controller
 from modules import weather_service
 from modules.proactive_monitor import monitor
+
+CANDIDATE_MODELS = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"]
 
 SYSTEM_INSTRUCTION = (
     f"Eres {ASSISTANT_NAME}, el asistente personal ejecutivo de primer nivel de Diego Fabián Andrade. "
@@ -138,42 +141,44 @@ class JarvisBrain:
         text_clean = text.strip()
 
         if self.client:
-            try:
-                from google.genai import types
-                
-                tools_list = list(TOOLS_REGISTRY.values())
+            for model_name in CANDIDATE_MODELS:
+                try:
+                    from google.genai import types
+                    tools_list = list(TOOLS_REGISTRY.values())
 
-                config = types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
-                    tools=tools_list,
-                    temperature=0.4
-                )
+                    config = types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        tools=tools_list,
+                        temperature=0.4
+                    )
 
-                response = self.client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=text_clean,
-                    config=config
-                )
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=text_clean,
+                        config=config
+                    )
 
-                if response.function_calls:
-                    for fc in response.function_calls:
-                        func_name = fc.name
-                        args = fc.args or {}
-                        if func_name in TOOLS_REGISTRY:
-                            fn = TOOLS_REGISTRY[func_name]
-                            fn_result = fn(**args)
-                            
-                            if isinstance(fn_result, str) and fn_result.startswith("SCREENSHOT_TAKEN:"):
-                                photo_path = fn_result.split(":", 1)[1]
-                                return {
-                                    "text": "📸 Aquí tienes la captura en tiempo real de tu pantalla, Diego.",
-                                    "photo": photo_path
-                                }
-                            return {"text": fn_result}
+                    if response.function_calls:
+                        for fc in response.function_calls:
+                            func_name = fc.name
+                            args = fc.args or {}
+                            if func_name in TOOLS_REGISTRY:
+                                fn = TOOLS_REGISTRY[func_name]
+                                fn_result = fn(**args)
+                                
+                                if isinstance(fn_result, str) and fn_result.startswith("SCREENSHOT_TAKEN:"):
+                                    photo_path = fn_result.split(":", 1)[1]
+                                    return {
+                                        "text": "📸 Aquí tienes la captura en tiempo real de tu pantalla, Diego.",
+                                        "photo": photo_path
+                                    }
+                                return {"text": fn_result}
 
-                return {"text": response.text}
-            except Exception as e:
-                print(f"Error en llamada a Gemini: {e}")
+                    if response.text:
+                        return {"text": response.text}
+                except Exception as e:
+                    print(f"Aviso: Fallo con modelo {model_name}: {e}. Intentando alternativa...")
+                    continue
 
         return self._local_intent_fallback(text_clean)
 
@@ -185,62 +190,72 @@ class JarvisBrain:
                         "para que pueda transcribirla y entender tu voz gratis."
             }
 
-        try:
-            from google.genai import types
-            with open(voice_path, "rb") as f:
-                audio_bytes = f.read()
+        with open(voice_path, "rb") as f:
+            audio_bytes = f.read()
 
-            audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
-            instruction = "Transcribe y ejecuta la siguiente orden de Diego como Jarvis."
-            tools_list = list(TOOLS_REGISTRY.values())
+        for model_name in CANDIDATE_MODELS:
+            try:
+                from google.genai import types
+                audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/ogg")
+                instruction = "Transcribe y ejecuta la siguiente orden de Diego como Jarvis."
+                tools_list = list(TOOLS_REGISTRY.values())
 
-            config = types.GenerateContentConfig(
-                system_instruction=SYSTEM_INSTRUCTION,
-                tools=tools_list,
-                temperature=0.3
-            )
+                config = types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    tools=tools_list,
+                    temperature=0.3
+                )
 
-            response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[audio_part, instruction],
-                config=config
-            )
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=[audio_part, instruction],
+                    config=config
+                )
 
-            if response.function_calls:
-                for fc in response.function_calls:
-                    func_name = fc.name
-                    args = fc.args or {}
-                    if func_name in TOOLS_REGISTRY:
-                        fn = TOOLS_REGISTRY[func_name]
-                        fn_result = fn(**args)
-                        if isinstance(fn_result, str) and fn_result.startswith("SCREENSHOT_TAKEN:"):
-                            return {
-                                "text": "📸 Orden por voz ejecutada: Captura de pantalla tomada.",
-                                "photo": fn_result.split(":", 1)[1]
-                            }
-                        return {"text": f"🎙️ *Orden por voz procesada:*\n\n{fn_result}"}
+                if response.function_calls:
+                    for fc in response.function_calls:
+                        func_name = fc.name
+                        args = fc.args or {}
+                        if func_name in TOOLS_REGISTRY:
+                            fn = TOOLS_REGISTRY[func_name]
+                            fn_result = fn(**args)
+                            if isinstance(fn_result, str) and fn_result.startswith("SCREENSHOT_TAKEN:"):
+                                return {
+                                    "text": "📸 Orden por voz ejecutada: Captura de pantalla tomada.",
+                                    "photo": fn_result.split(":", 1)[1]
+                                }
+                            return {"text": f"🎙️ *Orden por voz procesada:*\n\n{fn_result}"}
 
-            return {"text": f"🎙️ *Transcripción y respuesta:*\n{response.text}"}
-        except Exception as e:
-            return {"text": f"⚠️ Error al procesar audio con Gemini: {str(e)}"}
+                if response.text:
+                    return {"text": f"🎙️ *Transcripción y respuesta:*\n{response.text}"}
+            except Exception as e:
+                print(f"Error procesando voz con {model_name}: {e}")
+                continue
+
+        return {"text": "⚠️ No se pudo procesar el audio en este momento. Intenta de nuevo o envía texto."}
 
     def process_photo(self, photo_bytes: bytes, caption: Optional[str] = None) -> str:
         """Analiza con Gemini Vision una foto enviada por Diego desde su celular."""
         if not self.client:
             return "📸 Recibí tu foto. Para que pueda analizarla visualmente con IA, añade tu `GEMINI_API_KEY` en `.env`."
 
-        try:
-            from google.genai import types
-            img_part = types.Part.from_bytes(data=photo_bytes, mime_type="image/jpeg")
-            prompt = caption if caption else "Analiza esta imagen con detalle y dame la información o solución que necesita Diego."
+        for model_name in CANDIDATE_MODELS:
+            try:
+                from google.genai import types
+                img_part = types.Part.from_bytes(data=photo_bytes, mime_type="image/jpeg")
+                prompt = caption if caption else "Analiza esta imagen con detalle y dame la información o solución que necesita Diego."
 
-            response = self.client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[img_part, prompt],
-            )
-            return f"👁️ *Análisis Visual Jarvis:*\n\n{response.text}"
-        except Exception as e:
-            return f"⚠️ Error analizando imagen: {e}"
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=[img_part, prompt],
+                )
+                if response.text:
+                    return f"👁️ *Análisis Visual Jarvis:*\n\n{response.text}"
+            except Exception as e:
+                print(f"Error procesando foto con {model_name}: {e}")
+                continue
+
+        return "⚠️ Error analizando imagen con los modelos de visión."
 
     def _local_intent_fallback(self, query: str) -> Dict[str, Any]:
         """Parser de intenciones locales sin necesidad de API externa."""
@@ -332,9 +347,7 @@ class JarvisBrain:
                 "• *💬 WhatsApp:* '/wapp 3101234567 Hola amigo'\n"
                 "• *📸 Pantalla:* 'Mándame un pantallazo'\n"
                 "• *🔋 Hardware:* '¿Cómo está la batería y la RAM?'\n"
-                "• *💵 Finanzas:* '¿A cómo está el dólar?'\n\n"
-                "💡 *Tip:* Para activar el razonamiento con IA ilimitada ($0.00), "
-                "añade tu `GEMINI_API_KEY` gratuita en `.env`."
+                "• *💵 Finanzas:* '¿A cómo está el dólar?'\n"
             )
         }
 
