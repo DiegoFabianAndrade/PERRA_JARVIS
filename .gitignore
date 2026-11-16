@@ -1,7 +1,25 @@
-*.class
-target/
-.idea/
-*.iml
-.vscode/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.venv/
+venv/
+ENV/
+
+# Secrets & Configs
+.env
 config.properties
+
+# Logs & temp
 *.log
+temp/
+*.png
+test_*
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+target/
+*.class
