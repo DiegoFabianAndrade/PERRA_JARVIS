@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 
-from config import GEMINI_API_KEY, ASSISTANT_NAME, TEMP_DIR
+from config import GEMINI_API_KEY, ASSISTANT_NAME, TEMP_DIR, GMAIL_USER
 from modules import pc_controller
 from modules import market_tracker
 from modules import antigravity_bridge
@@ -28,7 +28,7 @@ FAST_MODELS = ["gemini-3.5-flash-lite", "gemini-3.5-flash"]
 SYSTEM_INSTRUCTION = (
     f"Eres {ASSISTANT_NAME}, el asistente ejecutivo personal de Diego Fabián Andrade. "
     "Responde siempre de forma ultra concisa, directa y ejecutiva (máximo 2 a 3 oraciones). "
-    "Tienes control de su PC, finanzas, correos, calendario y proyectos. "
+    "Tienes control de su PC, finanzas, correos (lectura y redacción/envío de Gmail), calendario y proyectos. "
     "Invoca herramientas solo cuando sea estrictamente necesario."
 )
 
@@ -70,6 +70,20 @@ def check_recent_downloads() -> str:
 def check_emails() -> str:
     """Consulta los correos recientes de Gmail."""
     return email_hub.format_emails_summary()
+
+def send_email_message(to_address: str, subject: str, body: str) -> str:
+    """Envía un correo electrónico oficial desde tu cuenta de Gmail (diegofabian105@gmail.com)."""
+    res = email_hub.send_email(to_address, subject, body)
+    if res.get("success"):
+        return (
+            f"📧 *CORREO ENVIADO CON ÉXITO*\n"
+            f"─────────────────────────────\n"
+            f"📤 *Para:* `{res['to']}`\n"
+            f"📋 *Asunto:* _{res['subject']}_\n"
+            f"👤 *Remitente:* `{GMAIL_USER}`\n"
+            f"─────────────────────────────"
+        )
+    return f"⚠️ No se pudo enviar el correo: {res.get('error', 'Desconocido')}"
 
 def check_calendar_schedule() -> str:
     """Consulta los eventos del calendario de iPhone para hoy."""
@@ -125,6 +139,7 @@ TOOLS_REGISTRY = {
     "get_market_data": get_market_data,
     "check_recent_downloads": check_recent_downloads,
     "check_emails": check_emails,
+    "send_email_message": send_email_message,
     "check_calendar_schedule": check_calendar_schedule,
     "create_calendar_event": create_calendar_event,
     "check_weather": check_weather,

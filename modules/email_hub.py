@@ -116,3 +116,33 @@ def format_emails_summary() -> str:
 
     lines.append("─────────────────────────────")
     return "\n".join(lines)
+
+
+def send_email(to_address: str, subject: str, body: str) -> Dict[str, Any]:
+    """Envía un correo electrónico desde la cuenta oficial de Gmail."""
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        return {"success": False, "error": "Credenciales de Gmail no configuradas."}
+
+    clean_password = GMAIL_APP_PASSWORD.replace(" ", "").strip()
+    try:
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"Diego Andrade via PERRA_JARVIS <{GMAIL_USER}>"
+        msg["To"] = to_address
+
+        # Formato texto plano
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(GMAIL_USER, clean_password)
+            server.sendmail(GMAIL_USER, [to_address], msg.as_string())
+
+        return {"success": True, "to": to_address, "subject": subject}
+    except Exception as e:
+        print(f"Error enviando correo: {e}")
+        return {"success": False, "error": str(e)}
+
