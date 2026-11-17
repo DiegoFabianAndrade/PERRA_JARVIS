@@ -96,7 +96,7 @@ def main():
     print(f"👤 Dueño Autorizado (Telegram Chat ID): {ALLOWED_CHAT_ID}")
     print("💻 Plataforma: Windows (Control de hardware y sistema activo)")
     print("📬 Gmail: Conectado vía IMAP SSL seguro")
-    print("📅 Calendario iPhone: Conectado a iCloud (Casa + Trabajo)")
+    print("📅 Calendarios: Google Calendar API Oficial (OAuth2) + iPhone iCloud")
     print("🌦️ Clima: Open-Meteo Bogotá en tiempo real")
     print("🛡️ Proactividad: Alertas automáticas de batería (<20% y 100%)")
     print("📡 Modo de Conexión: Telegram Long-Polling (Costo Cloud: $0.00)")

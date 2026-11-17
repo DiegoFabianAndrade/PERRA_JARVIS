@@ -110,7 +110,7 @@ def get_myday_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton("📧 Bandeja Gmail", callback_data="act_myday_gmail"),
-            InlineKeyboardButton("📅 Agenda iPhone", callback_data="act_myday_schedule")
+            InlineKeyboardButton("📅 Agenda (Google & iPhone)", callback_data="act_myday_schedule")
         ],
         [
             InlineKeyboardButton("🔔 Mis Recordatorios", callback_data="act_myday_reminders"),
@@ -444,6 +444,20 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     ]
     if q_lower in menu_triggers or any(t in q_lower for t in ["muestrame el menu", "muéstrame el menú", "ver menú", "ver menu", "menu de opciones", "menú de opciones"]):
         await start_command(update, context)
+        return
+
+    # Detección inteligente de enlaces de calendario (.ics / Google / iCloud)
+    if any(k in q_lower for k in ["calendar.google.com", "caldav.icloud.com", ".ics"]) and any(q_lower.startswith(p) for p in ["http://", "https://", "webcal://"]):
+        is_google = "google" in q_lower
+        calendar_hub.update_calendar_url(user_text, is_google=is_google)
+        cal_type = "Google Calendar" if is_google else "iCloud Calendar"
+        await update.message.reply_text(
+            f"📅 *¡{cal_type.upper()} VINCULADO CON ÉXITO!*\n"
+            "─────────────────────────────\n"
+            f"✅ Enlace registrado y guardado en tu configuración.\n"
+            f"Ahora PERRA_JARVIS leerá tus eventos en tiempo real en `/agenda` y en tu briefing matutino.",
+            parse_mode=ParseMode.MARKDOWN
+        )
         return
 
     # Si el usuario seleccionó un repositorio recientemente y su mensaje parece una orden de código

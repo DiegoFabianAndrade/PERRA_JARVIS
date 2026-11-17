@@ -29,8 +29,9 @@ DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 GMAIL_USER = os.getenv("GMAIL_USER", "").strip()
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "").strip()
 
-# Calendario iPhone (iCloud)
+# Calendario iPhone (iCloud) y Google Calendar
 ICLOUD_CALENDAR_URL = os.getenv("ICLOUD_CALENDAR_URL", "").strip()
+GOOGLE_CALENDAR_URL = os.getenv("GOOGLE_CALENDAR_URL", "").strip()
 ICLOUD_USER = os.getenv("ICLOUD_USER", "").strip()
 ICLOUD_APP_PASSWORD = os.getenv("ICLOUD_APP_PASSWORD", "").strip()
 

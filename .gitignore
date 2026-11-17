@@ -12,6 +12,8 @@ ENV/
 *.env
 config.properties
 token.json
+credentials.json
+*credential*.json
 REMOTE_ORDERS.jsonl
 REMOTE_RESULTS.jsonl
 

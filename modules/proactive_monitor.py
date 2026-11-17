@@ -83,7 +83,7 @@ class ProactiveMonitor:
             mail_summary = "Bandeja de Gmail al día (0 correos sin leer)."
 
         # 5. Calendario
-        cal_events = calendar_hub.fetch_icalendar_events(days_ahead=1)
+        cal_events = calendar_hub.fetch_all_calendar_events(days_ahead=1)
         today_events = [e for e in cal_events if e.get("is_today")]
         if today_events:
             event_lines = [f"• `{e['start'].strftime('%I:%M %p')}` {e['summary']}" for e in today_events]

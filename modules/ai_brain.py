@@ -90,6 +90,19 @@ def create_reminder(task_description: str, time_expression: str) -> str:
         f"Te enviaré una notificación sonora a Telegram en el momento exacto."
     )
 
+def create_calendar_event(title: str, time_expression: str, duration_minutes: int = 60, description: str = "Evento agendado por PERRA_JARVIS") -> str:
+    """Agrega un evento a Google Calendar y calendario de iPhone y programa una alarma push en Telegram."""
+    res = calendar_hub.create_calendar_event(title, time_expression, duration_minutes, description)
+    sync_status = "✅ Sincronizado en Google Calendar & iPhone" if res.get("api_created") else "⚠️ Alarma guardada en Telegram"
+    return (
+        f"📅 *EVENTO AGENDADO CON ÉXITO*\n"
+        f"─────────────────────────────\n"
+        f"📌 *Título:* _{res['title']}_\n"
+        f"⏰ *Fecha & Hora:* `{res['date_formatted']}`\n"
+        f"📍 *Estado:* {sync_status}\n\n"
+        f"Ya está en tu Google Calendar y se reflejará en la app de tu iPhone."
+    )
+
 def list_reminders() -> str:
     """Consulta los recordatorios activos pendientes."""
     return reminder_service.format_active_reminders()
@@ -113,6 +126,7 @@ TOOLS_REGISTRY = {
     "check_recent_downloads": check_recent_downloads,
     "check_emails": check_emails,
     "check_calendar_schedule": check_calendar_schedule,
+    "create_calendar_event": create_calendar_event,
     "check_weather": check_weather,
     "create_reminder": create_reminder,
     "list_reminders": list_reminders,
@@ -202,6 +216,13 @@ class JarvisBrain:
             tarea = m_rem.group(1).strip()
             tiempo = m_rem.group(2).strip()
             return {"text": create_reminder(tarea, tiempo)}
+
+        # Detección rápida de agendamiento en calendario: "agéndame...", "pon en mi calendario..."
+        m_cal = re.match(r"^(?:ag[eé]ndame|agenda|agendar|crear evento|crea evento|poner en el calendario|pon en mi calendario|crear en mi calendario|crea en mi calendario)\s+(?:de\s+|que\s+)?(.+?)\s+(a\s+las?\s+\d+.*|en\s+\d+.*|mañana.*|el\s+\w+.*)$", q)
+        if m_cal:
+            titulo = m_cal.group(1).strip()
+            tiempo = m_cal.group(2).strip()
+            return {"text": create_calendar_event(titulo, tiempo)}
 
         # 11. Control de Audio
         if "silenciar" in q or "mute" in q:
