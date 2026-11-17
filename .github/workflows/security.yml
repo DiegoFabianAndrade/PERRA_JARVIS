@@ -1,0 +1,50 @@
+name: Security & Secret Leak Audit
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  security-audit:
+    name: DevSecOps Zero-Leak Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify No Tracked Secrets
+        run: |
+          echo "Verifying that no sensitive credential files are tracked..."
+          FORBIDDEN_FILES=(".env" "token.json" "credentials.json" "config.properties" "REMOTE_ORDERS.jsonl")
+          for file in "${FORBIDDEN_FILES[@]}"; do
+            if git ls-files --error-unmatch "$file" > /dev/null 2>&1; then
+              echo "CRITICAL SECURITY ERROR: $file is tracked in Git!"
+              exit 1
+            fi
+          done
+          echo "✅ All secret credential files are properly ignored and uncommitted."
+
+      - name: Scan for Hardcoded API Keys or Secrets
+        run: |
+          echo "Scanning repository code for accidental secret leaks..."
+          # Check for Telegram bot token pattern
+          if git grep -E '[0-9]{9,10}:[a-zA-Z0-9_-]{35}' -- ':!*.example' ':!.github/*'; then
+            echo "CRITICAL: Hardcoded Telegram Bot Token detected!"
+            exit 1
+          fi
+          # Check for Google API key pattern
+          if git grep -E 'AIza[0-9A-Za-z-_]{35}' -- ':!*.example' ':!.github/*'; then
+            echo "CRITICAL: Hardcoded Google API Key detected!"
+            exit 1
+          fi
+          echo "✅ Secret scan passed: Zero hardcoded credentials found."

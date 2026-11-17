@@ -142,8 +142,13 @@ def media_control(action: str) -> str:
 
 
 def open_application(app_name: str) -> str:
-    """Abre aplicaciones comunes en Windows."""
+    """Abre aplicaciones comunes en Windows con sanitización estricta de inyección de comandos."""
+    import re
     app = app_name.lower().strip()
+    clean_app = re.sub(r"[^a-zA-Z0-9_\-\.]", "", app)
+    if not clean_app:
+        return "⚠️ Nombre de aplicación inválido."
+
     shortcuts = {
         "chrome": "start chrome",
         "navegador": "start chrome",
@@ -160,12 +165,12 @@ def open_application(app_name: str) -> str:
         "cmd": "start cmd",
     }
 
-    cmd = shortcuts.get(app, f"start {app_name}")
+    cmd = shortcuts.get(clean_app, f"start {clean_app}")
     try:
         subprocess.Popen(cmd, shell=True)
-        return f"🚀 Aplicación solicitada lanzada: `{app_name}`"
+        return f"🚀 Aplicación solicitada lanzada: `{clean_app}`"
     except Exception as e:
-        return f"⚠️ Error al intentar abrir {app_name}: {str(e)}"
+        return f"⚠️ Error al intentar abrir {clean_app}: {str(e)}"
 
 
 def run_command(command: str, timeout: int = 15) -> str:

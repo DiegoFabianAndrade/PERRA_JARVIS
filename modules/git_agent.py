@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from config import BASE_DIR
+from modules import security_guard
 
 DOWNLOADS_DIR = BASE_DIR.parent
 
@@ -26,14 +27,18 @@ def _run_git_cmd(repo_path: Path, args: List[str]) -> subprocess.CompletedProces
 
 def get_repo_overview(repo_name: str) -> str:
     """Devuelve un reporte ejecutivo del estado de Git del repositorio."""
-    repo_path = DOWNLOADS_DIR / repo_name
+    clean_name = security_guard.sanitize_project_name(repo_name)
+    repo_path = DOWNLOADS_DIR / clean_name
+    if not security_guard.is_safe_subpath(repo_path):
+        return "⛔ Acceso denegado: Ruta de repositorio no autorizada."
+
     if not repo_path.exists() or not (repo_path / ".git").exists():
         # Búsqueda insensible a mayúsculas
-        matched = [p for p in DOWNLOADS_DIR.iterdir() if p.is_dir() and (p / ".git").exists() and p.name.lower() == repo_name.lower()]
+        matched = [p for p in DOWNLOADS_DIR.iterdir() if p.is_dir() and (p / ".git").exists() and p.name.lower() == clean_name.lower()]
         if matched:
             repo_path = matched[0]
         else:
-            return f"⚠️ `{repo_name}` no parece ser un repositorio Git válido."
+            return f"⚠️ `{clean_name}` no parece ser un repositorio Git válido."
 
     # 1. Rama actual
     res_b = _run_git_cmd(repo_path, ["branch", "--show-current"])

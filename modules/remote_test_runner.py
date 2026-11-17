@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 
 from config import BASE_DIR, GEMINI_API_KEY
 from modules import antigravity_bridge
+from modules import security_guard
 
 DOWNLOADS_DIR = BASE_DIR.parent
 
@@ -44,18 +45,26 @@ def _diagnose_failure_with_ai(project_name: str, test_output: str) -> str:
 
 
 def run_project_tests(project_name: str) -> Dict[str, Any]:
-    """Detecta el tipo de proyecto y ejecuta su suite de pruebas."""
-    proj_path = DOWNLOADS_DIR / project_name
+    """Detecta el tipo de proyecto y ejecuta su suite de pruebas con validación sandbox."""
+    clean_name = security_guard.sanitize_project_name(project_name)
+    if not clean_name:
+        return {"success": False, "project": project_name, "message": "⚠️ Nombre de proyecto inválido."}
+
+    proj_path = DOWNLOADS_DIR / clean_name
+    if not security_guard.is_safe_subpath(proj_path):
+        security_guard.log_security_event("PATH_TRAVERSAL_ATTEMPT", f"Intento de escape en tests: {project_name}")
+        return {"success": False, "project": project_name, "message": "⛔ Acceso denegado: Violación de límite de seguridad."}
+
     if not proj_path.exists():
         # Buscar insensible a mayúsculas
-        matched = [p for p in DOWNLOADS_DIR.iterdir() if p.is_dir() and p.name.lower() == project_name.lower()]
+        matched = [p for p in DOWNLOADS_DIR.iterdir() if p.is_dir() and p.name.lower() == clean_name.lower()]
         if matched:
             proj_path = matched[0]
         else:
             return {
                 "success": False,
-                "project": project_name,
-                "message": f"❌ No se encontró el proyecto `{project_name}` en {DOWNLOADS_DIR}."
+                "project": clean_name,
+                "message": f"❌ No se encontró el proyecto `{clean_name}` en {DOWNLOADS_DIR}."
             }
 
     cmd = None

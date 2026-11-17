@@ -37,6 +37,8 @@ from modules import reminder_service
 from modules import remote_test_runner as test_runner
 from modules import git_agent
 from modules import document_analyzer
+from modules import voice_engine
+from modules import security_guard
 from modules.proactive_monitor import monitor
 
 # Memoria temporal de selección de repositorio por usuario
@@ -44,9 +46,14 @@ USER_SELECTED_REPO: Dict[int, str] = {}
 
 
 def is_authorized(update: Update) -> bool:
-    """Verifica si el usuario es Diego."""
-    user_id = update.effective_user.id if update.effective_user else None
-    return user_id == ALLOWED_CHAT_ID
+    """Verifica si el usuario es Diego y registra intentos no autorizados."""
+    user = update.effective_user
+    user_id = user.id if user else None
+    if user_id != ALLOWED_CHAT_ID:
+        username = user.username if user else "Anon"
+        security_guard.log_security_event("UNAUTHORIZED_ACCESS_BLOCKED", f"Usuario @{username} ({user_id}) bloqueado.", user_id)
+        return False
+    return True
 
 
 # =========================================================================
@@ -61,15 +68,33 @@ def get_main_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("💻 Apartado PC", callback_data="nav_pc"),
-            InlineKeyboardButton("📱 Mi Día & Productividad", callback_data="nav_myday")
+            InlineKeyboardButton("📱 Mi Día & Agenda", callback_data="nav_myday")
         ],
         [
             InlineKeyboardButton("🧑‍💻 Antigravity & Repos", callback_data="nav_projects"),
             InlineKeyboardButton("📊 Finanzas & TRM", callback_data="nav_finances")
         ],
         [
-            InlineKeyboardButton("💬 WhatsApp Desktop", callback_data="nav_wapp"),
-            InlineKeyboardButton("📸 Captura Rápida", callback_data="act_pc_screenshot")
+            InlineKeyboardButton("🛡️ Centro de Seguridad", callback_data="nav_security"),
+            InlineKeyboardButton("📸 Captura Pantalla", callback_data="act_pc_screenshot")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_security_keyboard() -> InlineKeyboardMarkup:
+    """Apartado Centro de Seguridad & Ciberdefensa."""
+    keyboard = [
+        [
+            InlineKeyboardButton("🔍 Correr Auditoría", callback_data="act_sec_audit"),
+            InlineKeyboardButton("🔒 Bloquear PC Ya", callback_data="act_pc_lock")
+        ],
+        [
+            InlineKeyboardButton("📜 Log de Accesos Bloqueados", callback_data="act_sec_logs"),
+            InlineKeyboardButton("📸 Ojo Centinela", callback_data="act_pc_screenshot")
+        ],
+        [
+            InlineKeyboardButton("« Volver al Menú Principal", callback_data="nav_main")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -120,7 +145,8 @@ def get_myday_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🌦️ Clima Bogotá", callback_data="act_myday_weather")
         ],
         [
-            InlineKeyboardButton("☀️ Briefing Completo", callback_data="act_briefing")
+            InlineKeyboardButton("☀️ Briefing Completo", callback_data="act_briefing"),
+            InlineKeyboardButton("🗣️ Escuchar en Audio", callback_data="act_briefing_audio")
         ],
         [
             InlineKeyboardButton("« Volver al Menú Principal", callback_data="nav_main")
@@ -204,11 +230,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "─────────────────────────────\n"
         "Asistente personal ejecutivo conectado a tu ecosistema.\n\n"
         "📂 *Selecciona un apartado para operar:*\n"
-        "• *💻 Apartado PC:* Control de Windows, hardware, pantalla y apps.\n"
-        "• *📱 Mi Día:* Gmail, Calendarios iPhone (Casa + Trabajo) y Clima.\n"
-        "• *🧑‍💻 Antigravity:* Envía órdenes a este chat para el repo que elijas.\n"
-        "• *📊 Finanzas:* TRM oficial Colombia, criptos y gráficas.\n"
-        "• *💬 WhatsApp:* Despacho de mensajes remotos.\n"
+        "• *💻 Apartado PC:* Hardware, captura de pantalla, bloqueo y apps.\n"
+        "• *📱 Mi Día & Agenda:* Google Calendar, iPhone, Gmail y Clima.\n"
+        "• *🧑‍💻 Antigravity & Repos:* Órdenes remotas, tests unitarios y Git.\n"
+        "• *📊 Finanzas:* TRM oficial Colombia, criptomonedas y gráficas.\n"
+        "• *🛡️ Seguridad:* Auditoría de secretos, blindaje y logs de acceso.\n"
         "─────────────────────────────"
     )
     await update.message.reply_text(
@@ -286,6 +312,19 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             "• *🌿 Git:* Consulta la rama y cambios pendientes.\n"
             "• *📋 Órdenes:* Historial de tareas pendientes.",
             reply_markup=get_projects_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+    elif data == "nav_security":
+        await query.edit_message_text(
+            "🛡️ *APARTADO: CENTRO DE SEGURIDAD & CIBERDEFENSA*\n"
+            "─────────────────────────────\n"
+            "Mecanismos de protección activos:\n"
+            f"• *Whitelist Estricta:* Solo responde al Chat ID `{ALLOWED_CHAT_ID}`.\n"
+            "• *Secret Zero:* Cero tokens ni credenciales en Git.\n"
+            "• *Sandbox Defense:* Mitigación de Path Traversal & Shell Injection.\n"
+            "• *Modo Centinela:* Bloqueo de sesión Windows inmediato.",
+            reply_markup=get_security_keyboard(),
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -380,6 +419,31 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await query.message.reply_text("⏳ Preparando tu briefing ejecutivo...")
         briefing = monitor.get_executive_briefing()
         await query.message.reply_text(briefing, parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "act_briefing_audio":
+        await query.message.reply_text("🎙️ Sintetizando nota de voz del briefing ejecutivo...")
+        briefing = monitor.get_executive_briefing()
+        v_path = voice_engine.generate_voice_file_sync(briefing, "briefing_voice.mp3")
+        if v_path and v_path.exists():
+            with open(v_path, "rb") as vf:
+                await query.message.reply_voice(voice=vf, caption="☀️ Briefing Ejecutivo en audio.")
+        else:
+            await query.message.reply_text("⚠️ No se pudo generar la nota de voz.")
+
+    # 4. Acciones de Seguridad
+    elif data == "act_sec_audit":
+        report = security_guard.format_security_report()
+        await query.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "act_sec_logs":
+        log_file = security_guard.BLOCKED_ACCESS_LOG
+        if log_file.exists():
+            with open(log_file, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+            msg = f"📜 *LOG DE ACCESOS Y EVENTOS DE SEGURIDAD:*\n```\n{content[-2000:]}\n```" if content else "📜 Log limpio: 0 accesos bloqueados."
+        else:
+            msg = "📜 Log limpio: 0 eventos o accesos no autorizados."
+        await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
     # 4. Acciones de Finanzas
     elif data == "act_fin_trm":
@@ -686,6 +750,14 @@ async def handle_document_message(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text(analysis, parse_mode=ParseMode.MARKDOWN)
 
 
+async def security_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /seguridad para ver la auditoría de ciberseguridad."""
+    if not is_authorized(update):
+        return
+    report = security_guard.format_security_report()
+    await update.message.reply_text(report, reply_markup=get_security_keyboard(), parse_mode=ParseMode.MARKDOWN)
+
+
 def register_handlers(app):
     """Registra todos los comandos y manejadores."""
     app.add_handler(CommandHandler(["start", "menu"], start_command))
@@ -693,6 +765,7 @@ def register_handlers(app):
     app.add_handler(CommandHandler("orden", order_command))
     app.add_handler(CommandHandler(["status", "git"], project_status_command))
     app.add_handler(CommandHandler(["test", "tests"], test_runner_command))
+    app.add_handler(CommandHandler(["seguridad", "security", "auditoria"], security_command))
     app.add_handler(CommandHandler("wapp", wapp_command))
     app.add_handler(CommandHandler(["correos", "gmail"], lambda u, c: handle_text_message(u, c)))
     app.add_handler(CommandHandler(["agenda", "calendario"], lambda u, c: handle_text_message(u, c)))
