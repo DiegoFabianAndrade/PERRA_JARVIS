@@ -1,92 +1,172 @@
-# 🤖 PERRA_JARVIS
+# 🤖 PERRA_JARVIS — Executive Personal AI Assistant
 
-> **Asistente personal inteligente tipo Jarvis, 100% en tu bolsillo vía Telegram, con control operativo directo sobre tu computador Windows y $0.00 USD en costos de infraestructura.**
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg?logo=python&logoColor=white)](https://python.org)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20iOS%20%7C%20Azure-0078D4.svg?logo=windows&logoColor=white)](https://microsoft.com)
+[![Telegram Bot](https://img.shields.io/badge/Telegram-Bot%20API-2CA5E0.svg?logo=telegram&logoColor=white)](https://telegram.org)
+[![Gemini](https://img.shields.io/badge/AI%20Brain-Gemini%203.5%20Flash%20Lite-8E75C2.svg?logo=google&logoColor=white)](https://aistudio.google.com)
+[![Cloud Cost](https://img.shields.io/badge/Cloud%20Cost-%240.00%20USD-success.svg)](https://azure.microsoft.com)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+> **Asistente personal ejecutivo autónomo tipo Jarvis, 100% en tu bolsillo vía Telegram, con control operativo directo sobre tu computador Windows, sincronización bidireccional con Google Calendar & iPhone, despacho de correos en Gmail, puente a tus entornos de desarrollo y estricta política de costo $0.00 USD.**
 
 ---
 
-## 🌟 ¿Qué es PERRA_JARVIS?
+## 🌟 Arquitectura General del Sistema
 
-Inspirado en la visión de sistemas de IA autónomos locales (como *OpenJarvis*), **PERRA_JARVIS** es un asistente ejecutor diseñado para que puedas controlar tu computador personal desde el celular en cualquier momento y lugar, recibir reportes financieros en tiempo real y ejecutar tareas por voz o texto.
+```mermaid
+flowchart TD
+    subgraph Mobile["📱 Móvil (Diego)"]
+        TG["Telegram (@PerraJarvis_bot)\nTexto, Voz, Fotos & Botones"]
+        APPCAL["Apple Calendar (iPhone)\nSincronizado vía Gmail"]
+    end
+
+    subgraph Core["⚡ PERRA_JARVIS (Windows Local Daemon)"]
+        ROUTER["Fast-Path Router (<0.05s)"]
+        BRAIN["Turbo AI Brain\n(Gemini 3.5 Flash Lite ~0.9s)"]
+        PROACTIVE["Proactive Monitor 24/7\nBatería, Alarmas & Briefing"]
+    end
+
+    subgraph Ecosystem["🌐 Ecosistema & Servicios Integrados"]
+        PC["💻 Windows Controller\nScreenshots, Psutil, Lock, Apps, Audio"]
+        GCAL["📅 Google Calendar API (OAuth2)\nLectura & Escritura Oficial"]
+        GMAIL["📬 Gmail Hub\nIMAP SSL Reader + SMTP Outbound"]
+        MARKET["📊 Financial Tracker\nTRM Superfinanciera + Crypto + Matplotlib"]
+        WEATHER["🌦️ Open-Meteo API\nClima Bogotá en tiempo real"]
+        BRIDGE["🧑‍💻 Antigravity Bridge\nREMOTE_ORDERS.jsonl ⇄ IDE"]
+    end
+
+    TG <--> ROUTER
+    ROUTER <--> BRAIN
+    BRAIN --> PC
+    BRAIN --> GCAL
+    BRAIN --> GMAIL
+    BRAIN --> MARKET
+    BRAIN --> WEATHER
+    BRAIN --> BRIDGE
+    GCAL -.-> APPCAL
+    PROACTIVE --> TG
+```
 
 ---
 
-## 🦾 Capacidades Principales
+## 🦾 Módulos y Capacidades de Primer Nivel
 
-### 1. 📱 Control Remoto Total de tu PC (Windows)
-- 📸 **Captura de Pantalla en Tiempo Real:** "¿Qué tengo abierto en el PC?" -> Recibe un screenshot instantáneo en Telegram.
-- 🔋 **Telemetría de Hardware:** Monitoreo de batería (% y estado de carga), consumo de CPU, memoria RAM y espacio en disco.
-- 🔒 **Seguridad Inmediata:** Bloqueo de estación de trabajo (`LockWorkStation`) con un solo toque desde la calle.
+### 1. 💻 Control Total de tu PC (Windows)
+- 📸 **Captura de Pantalla en Vivo:** Integración GDI con `user32.OpenInputDesktop` para capturas limpias incluso en sesiones en segundo plano.
+- 🔋 **Telemetría de Hardware:** Monitoreo en tiempo real de batería (% y estado de carga AC), uso de CPU, memoria RAM y almacenamiento.
+- 🔒 **Modo Centinela / Bloqueo:** Bloqueo de sesión Windows inmediato (`LockWorkStation`) con un toque desde el celular.
 - 🚀 **Lanzador de Apps:** "Abre Spotify", "Abre Chrome", "Abre VS Code".
-- 🔊 **Control Multimedia:** Subir/bajar volumen, silenciar (Mute) y reproducir/pausar música.
-- 📁 **Gestión de Descargas:** Listar y consultar archivos descargados recientemente.
-- ⌨️ **Terminal Remota:** Ejecutar comandos de PowerShell vía `/run <comando>` con salida protegida.
+- 🔊 **Control Multimedia:** Subir/bajar volumen, silenciar (Mute) y reproducir/pausar canciones.
+- 📁 **Explorador de Descargas:** Inspección remota de archivos recientes descargados.
 
-### 2. 🧠 Cerebro Inteligente Híbrido (Gemini 2.5 Flash + Fallback)
-- **Comprensión en Lenguaje Natural:** Entiende órdenes conversacionales sin necesidad de comandos rígidos.
-- **Notas de Voz:** Puedes enviarle audios de voz por Telegram; el asistente los escucha, los transcribe y ejecuta la acción solicitada.
-- **Function Calling:** El modelo de IA decide autónomamente qué herramienta del PC activar según tu petición.
-- **Modo Offline/Local:** Si no hay conexión o no tienes API Key configurada, cuenta con un motor semántico local integrado.
+### 2. 📅 Calendario Oficial: Google Calendar API ⇄ iPhone Sync
+- **OAuth2 Bidireccional:** Conexión oficial autorizada con la **Google Calendar API v3** (`token.json`).
+- **Agendamiento Manos Libres:** Agendamiento por texto o nota de voz (*"Agéndame entrega del lab de ARSW el viernes a las 11:59 pm"*).
+- **Reflejo Inmediato en iPhone:** Como el iPhone sincroniza la cuenta de Gmail, el evento entra de inmediato en la app oficial de Calendario de iOS.
+- **Doble Alerta:** Generación automática de alarmas sonoras en Telegram para el minuto exacto del evento.
+- **Soporte Híbrido iCloud:** Fusión transparente con calendarios Webcal de Apple (Casa / Trabajo).
 
-### 3. 📊 Tracker Financiero (Heredado de DollarBot)
-- 🏛️ **TRM Oficial USD/COP:** Datos abiertos en tiempo real de la Superintendencia Financiera de Colombia.
-- 💎 **Criptomonedas:** Cotización 24h de Bitcoin, Ethereum y Solana.
-- 📈 **Gráficas Visuales Dark Mode:** Generación de gráficos históricos en formato PNG con `matplotlib`.
+### 3. 📧 Centro de Operaciones Gmail (Lectura & Envío)
+- **Lectura IMAP SSL:** Consulta rápida de los correos no leídos más recientes.
+- **Despacho Outbound SMTP:** Envío formal de correos directamente desde Telegram (*"Manda un correo al profesor con asunto Entrega y dile que adjunto el enlace..."*).
+- **Redacción Inteligente con IA:** Gemini Flash Lite estructura el saludo, cuerpo profesional y firma.
 
-### 4. 🛡️ Seguridad Blindada
-- **Whitelist Estricta:** El bot solo responde al Telegram Chat ID del dueño (`1257398092`). Cualquier otra persona que intente interactuar es rechazada automáticamente.
+### 4. ⚡ Cerebro Inteligente Híbrido (Fast-Path + Gemini Flash Lite)
+- **Fast-Path Router (<0.05s):** Resuelve acciones comunes (pantalla, menú, batería, TRM, clima, volumen) localmente sin llamadas a la nube.
+- **Gemini 3.5 Flash Lite (~0.99s):** Comprensión profunda, notas de voz (`.ogg`), fotos (visión multimodal) y Function Calling autónomo.
+- **Audio Nativo:** Escucha audios de Telegram y responde ejecutando la orden solicitada.
+
+### 5. 🛡️ Monitor Proactivo en Segundo Plano
+- **Alerta de Carga Completa:** Notificación push sonora cuando la laptop alcanza el 100% para cuidar los ciclos de batería.
+- **Alerta Crítica de Batería:** Aviso urgente si la batería baja de 20% y el cargador está desconectado.
+- **Briefing Ejecutivo Matutino (`/briefing`):** Consolidado diario que agrupa Clima de Bogotá, TRM del día, estado de batería, correos pendientes y eventos de la jornada.
+
+### 6. 📊 Finanzas & Mercados en Tiempo Real
+- 🏛️ **TRM Oficial USD/COP:** Datos abiertos en tiempo real de la Superintendencia Financiera de Colombia (`datos.gov.co`).
+- 💎 **Criptomonedas:** Cotizaciones 24h de Bitcoin, Ethereum y Solana vía CoinGecko.
+- 📈 **Gráficas Visuales Dark Mode:** Generación de gráficos históricos en formato PNG generados en local con `matplotlib`.
+
+### 7. 🧑‍💻 Puente Antigravity (IDE Remoto)
+- Permite seleccionar cualquier repositorio de tu computador (`PERRA_JARVIS`, `ARSW`, `PTIA`, `LAB_6`) y enviarle instrucciones al agente de código local a través de `REMOTE_ORDERS.jsonl` y `REMOTE_RESULTS.jsonl`.
 
 ---
 
-## 📂 Arquitectura del Proyecto
+## 📂 Estructura del Repositorio
 
 ```
 PERRA_JARVIS/
-├── .env                  # Variables de entorno y tokens secretos (ignorado por Git)
-├── .env.example          # Plantilla de configuración
-├── config.py             # Lectura y validación de parámetros del sistema
-├── main.py               # Entrada principal del bot asíncrono
-├── requirements.txt      # Dependencias de Python
+├── .env.example              # Plantilla de configuración de entorno
+├── .gitignore                # Reglas estrictas de privacidad (ignora tokens, credenciales y logs)
+├── config.py                 # Validador y cargador central de configuración
+├── main.py                   # Orquestador del bot asíncrono y monitor proactivo
+├── requirements.txt          # Dependencias oficiales verificadas
+├── azure/                    # Paquete de contingencia serverless ($0.00)
+│   ├── function_app.py       # Azure Function de relevo en la nube
+│   ├── host.json             # Runtime configuration
+│   └── README_AZURE.md       # Guía de despliegue en Azure Consumption Tier
 ├── modules/
-│   ├── pc_controller.py  # Control de Windows: capturas, hardware, volumen, apps
-│   ├── market_tracker.py # TRM Colombia, criptos y gráficas con matplotlib
-│   ├── ai_brain.py       # Cerebro con Gemini 2.5 Flash, notas de voz y tools
-│   └── telegram_ui.py    # Menú táctil (Inline Keyboards), comandos y callbacks
+│   ├── ai_brain.py           # Fast-Path Router + Gemini 3.5 Flash Lite Function Calling
+│   ├── calendar_hub.py       # Google Calendar API (OAuth2) + iCloud Webcal Fusion
+│   ├── email_hub.py          # Gmail IMAP SSL Reader + SMTP Outbound Dispatcher
+│   ├── pc_controller.py      # Win32 GDI screen grab, psutil, process launcher, media keys
+│   ├── market_tracker.py     # TRM Colombia, Crypto tracker y Dark-Mode charts
+│   ├── weather_service.py    # Open-Meteo Bogotá en tiempo real
+│   ├── reminder_service.py   # Motor local de recordatorios con parseo de tiempo
+│   ├── proactive_monitor.py  # Centinela de batería, agenda y Daily Briefing
+│   ├── antigravity_bridge.py # Interfaz de comunicación con workspaces de código
+│   └── telegram_ui.py        # Dashboard modular, Inline Keyboards y despachador
 └── scripts/
-    ├── run.bat           # Ejecución interactiva con consola visible
-    ├── start_hidden.vbs  # Ejecución 100% invisible en segundo plano
-    └── stop_jarvis.bat   # Detener instancias en ejecución
+    ├── auth_google_calendar.py # Flujo OAuth2 interactivo de Google Calendar
+    ├── run.bat               # Ejecución interactiva en consola
+    ├── start_hidden.vbs      # Lanzador silencioso en segundo plano
+    └── stop_jarvis.bat       # Detención limpia de procesos
 ```
 
 ---
 
-## 🚀 Puesta en Marcha Rápida
+## 🚀 Puesta en Marcha
 
-### 1. Requisitos
-- Windows 10 u 11
-- Python 3.10 o superior
+### 1. Clonar e Instalar Dependencias
+```bash
+git clone https://github.com/DiegoFabianAndrade/PERRA_JARVIS.git
+cd PERRA_JARVIS
+pip install -r requirements.txt
+```
 
-### 2. Configurar variables (.env)
-Asegúrate de que tu archivo `.env` contenga:
+### 2. Configurar Variables de Entorno (`.env`)
+Crea tu archivo `.env` basándote en `.env.example`:
 ```ini
 TELEGRAM_BOT_TOKEN=tu_token_de_telegram
 ALLOWED_CHAT_ID=1257398092
-GEMINI_API_KEY=tu_api_key_gratis_de_gemini
+GEMINI_API_KEY=tu_api_key_de_google_ai_studio
 ASSISTANT_NAME=PERRA_JARVIS
-```
-> *Nota: Puedes obtener tu Gemini API Key gratis en [Google AI Studio](https://aistudio.google.com/app/apikey).*
+DEBUG=False
 
-### 3. Ejecutar
-- **Modo desarrollo (con ventana de terminal):**
-  Doble clic en `scripts/run.bat` o:
-  ```powershell
+# Gmail Oficial (Lectura IMAP + Envío SMTP)
+GMAIL_USER=tu_correo@gmail.com
+GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+
+# Calendarios
+ICLOUD_CALENDAR_URL=webcal://pXX-caldav.icloud.com/...
+```
+
+### 3. Vincular Google Calendar (Opcional, 1 sola vez)
+```bash
+python scripts/auth_google_calendar.py
+```
+Se abrirá el navegador para autorizar la app y generará `token.json` automáticamente.
+
+### 4. Iniciar Jarvis
+- **Modo interactivo (consola):**
+  ```bash
   python main.py
   ```
-- **Modo silencioso 24/7 (segundo plano invisible):**
-  Doble clic en `scripts/start_hidden.vbs`
+- **Modo silencioso 24/7 (segundo plano invisible):**  
+  Doble clic en `scripts/start_hidden.vbs`.
 
 ---
 
-## ☁️ ¿Y Azure? Estrategia de Costo $0.00
-- **PC Local:** El control del hardware y las acciones en tu equipo corren en tu propia máquina a costo **$0.00 USD**.
-- **IA:** La API de Gemini Flash ofrece 1,500 solicitudes diarias gratuitas (**$0.00 USD**).
-- **Azure (Opcional):** Si en el futuro deseas que Jarvis responda cuando tu PC esté completamente apagado, se puede desplegar un *Azure Function Serverless* (1 millón de peticiones gratis al mes) como agente de relevo en la nube sin tocar tu crédito universitario.
+## 🔒 Seguridad y Privacidad
+- **Whitelist Estricta:** El bot solo responde al `ALLOWED_CHAT_ID` autorizado. Cualquier interacción no autorizada es rechazada.
+- **Cero Filtraciones:** Archivos críticos (`.env`, `token.json`, `credentials.json`, `REMOTE_ORDERS.jsonl`) están estrictamente ignorados por Git.
+- **Costo Cloud $0.00:** Corre 100% en infraestructura local y servicios gratuitos sin comprometer saldos ni tarjetas.
