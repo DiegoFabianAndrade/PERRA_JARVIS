@@ -89,6 +89,22 @@ flowchart TD
 ### 7. 🧑‍💻 Puente Antigravity (IDE Remoto)
 - Permite seleccionar cualquier repositorio de tu computador (`PERRA_JARVIS`, `ARSW`, `PTIA`, `LAB_6`) y enviarle instrucciones al agente de código local a través de `REMOTE_ORDERS.jsonl` y `REMOTE_RESULTS.jsonl`.
 
+### 8. 🧪 Ejecutor Remoto de Pruebas Unitarias (Test Runner con IA)
+- **Ejecución Multi-Ecosistema:** Ejecuta suites de tests automáticas en tus proyectos (Maven Java con `mvnw.cmd`, Node.js con `npm test`, Python con `unittest`/`pytest`).
+- **Diagnóstico Autónomo:** Si una prueba falla, Gemini Flash Lite analiza la traza del error en segundos, localiza la línea exacta rota y te explica la solución técnica en tu Telegram.
+
+### 9. 📑 Analizador de Documentos y PDFs Multimodal
+- **Estudio y Parciales:** Reenvíale cualquier archivo PDF, diapositiva o documento de clase al bot.
+- **Consultas con Caption:** Si le agregas un comentario (*"Hazme un resumen de 5 puntos"* o *"Saca 3 preguntas tipo parcial"*), la IA lo procesa y te responde estructurado.
+
+### 10. 🐙 Agente Git & GitHub
+- Inspección rápida de cualquier repositorio: rama activa, archivos pendientes sin commit y los últimos commits realizados.
+- Ejecución segura de commits y push directamente desde Telegram.
+
+### 11. 🗣️ Respuestas con Voz Sintetizada Ultrarrealista
+- **Síntesis Neuronal (Edge-TTS):** Jarvis ahora no solo te escribe, ¡te habla!
+- Cuando le envíes una nota de voz o le digas *"háblame"*, te responderá con una nota de voz en español colombiano neutro de alta fidelidad sin ningún costo ($0.00).
+
 ---
 
 ## 📂 Estructura del Repositorio
@@ -114,6 +130,10 @@ PERRA_JARVIS/
 │   ├── reminder_service.py   # Motor local de recordatorios con parseo de tiempo
 │   ├── proactive_monitor.py  # Centinela de batería, agenda y Daily Briefing
 │   ├── antigravity_bridge.py # Interfaz de comunicación con workspaces de código
+│   ├── remote_test_runner.py # Ejecutor de pruebas Maven/Node/Python con diagnóstico IA
+│   ├── document_analyzer.py  # Procesador multimodal de PDFs y documentos
+│   ├── git_agent.py          # Agente Git para inspección y commits remotos
+│   ├── voice_engine.py       # Síntesis de voz natural en español con Edge-TTS
 │   └── telegram_ui.py        # Dashboard modular, Inline Keyboards y despachador
 └── scripts/
     ├── auth_google_calendar.py # Flujo OAuth2 interactivo de Google Calendar

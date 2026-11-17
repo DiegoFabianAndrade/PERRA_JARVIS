@@ -20,6 +20,10 @@ from modules import calendar_hub
 from modules import whatsapp_controller
 from modules import weather_service
 from modules import reminder_service
+from modules import voice_engine
+from modules import remote_test_runner as test_runner
+from modules import git_agent
+from modules import document_analyzer
 from modules.proactive_monitor import monitor
 
 # gemini-3.5-flash-lite responde en ~0.9s (vs 7.8s de modelos pesados)
@@ -130,6 +134,23 @@ def list_dev_projects() -> str:
     projs = antigravity_bridge.list_local_projects()
     return "🧑‍💻 *Repositorios en PC:*\n" + "\n".join(f"• `{p}`" for p in projs)
 
+def run_project_tests(project_name: str) -> str:
+    """Ejecuta la suite de pruebas unitarias (Maven, Node, Python) en un repositorio y diagnostica con IA si fallan."""
+    res = test_runner.run_project_tests(project_name)
+    return test_runner.format_test_report(res)
+
+def get_repo_git_status(project_name: str) -> str:
+    """Consulta la rama activa, archivos modificados y último commit de un repositorio de código."""
+    return git_agent.get_repo_overview(project_name)
+
+def get_recent_commits(project_name: str, count: int = 5) -> str:
+    """Muestra los últimos commits de un repositorio en el computador."""
+    return git_agent.get_recent_commits(project_name, count)
+
+def commit_and_push_repo(project_name: str, message: str) -> str:
+    """Realiza un git add, commit y push seguro en el repositorio indicado."""
+    return git_agent.commit_and_push_changes(project_name, message)
+
 TOOLS_REGISTRY = {
     "get_system_telemetry": get_system_telemetry,
     "capture_pc_screen": capture_pc_screen,
@@ -147,6 +168,10 @@ TOOLS_REGISTRY = {
     "list_reminders": list_reminders,
     "get_daily_briefing": get_daily_briefing,
     "list_dev_projects": list_dev_projects,
+    "run_project_tests": run_project_tests,
+    "get_repo_git_status": get_repo_git_status,
+    "get_recent_commits": get_recent_commits,
+    "commit_and_push_repo": commit_and_push_repo,
 }
 
 
@@ -254,6 +279,20 @@ class JarvisBrain:
         if m_app:
             return {"text": pc_controller.open_application(m_app.group(1))}
 
+        # 13. Ejecución de Pruebas Unitarias Remotas
+        m_test = re.search(r"(?:correr?|ejecutar?|hacer|corre|ejecuta)\s+(?:las?\s+)?(?:pruebas?|tests?)\s+(?:de|en|del proyecto)\s+([a-zA-Z0-9_\-\.]+)", q)
+        if m_test:
+            return {"text": run_project_tests(m_test.group(1))}
+
+        # 14. Estado Git y Commits
+        m_git = re.search(r"(?:estado|status|ramas?)\s+(?:de\s+git\s+)?(?:en|de|del proyecto)\s+([a-zA-Z0-9_\-\.]+)", q)
+        if m_git:
+            return {"text": get_repo_git_status(m_git.group(1))}
+
+        m_commits = re.search(r"(?:commits?|ultimos commits|historial)\s+(?:en|de|del proyecto)\s+([a-zA-Z0-9_\-\.]+)", q)
+        if m_commits:
+            return {"text": get_recent_commits(m_commits.group(1))}
+
         # No es comando simple, requiere razonamiento de LLM
         return None
 
@@ -297,10 +336,18 @@ class JarvisBrain:
                                         "text": "📸 Captura de pantalla tomada:",
                                         "photo": fn_result.split(":", 1)[1]
                                     }
-                                return {"text": fn_result}
+                                res_dict = {"text": fn_result}
+                                if any(w in text_clean.lower() for w in ["nota de voz", "audio", "háblame", "hablame"]):
+                                    v = voice_engine.generate_voice_file_sync(fn_result)
+                                    if v: res_dict["voice"] = str(v)
+                                return res_dict
 
                     if response.text:
-                        return {"text": response.text}
+                        res_dict = {"text": response.text}
+                        if any(w in text_clean.lower() for w in ["nota de voz", "audio", "háblame", "hablame"]):
+                            v = voice_engine.generate_voice_file_sync(response.text)
+                            if v: res_dict["voice"] = str(v)
+                        return res_dict
                 except Exception as e:
                     print(f"Aviso con {model_name}: {e}. Intentando alternativa...")
                     continue
@@ -350,10 +397,20 @@ class JarvisBrain:
                                     "text": "📸 Captura tomada por comando de voz:",
                                     "photo": fn_result.split(":", 1)[1]
                                 }
-                            return {"text": f"🎙️ *Orden ejecutada:*\n\n{fn_result}"}
+                            reply_msg = f"🎙️ *Orden ejecutada:*\n\n{fn_result}"
+                            v_out = voice_engine.generate_voice_file_sync(fn_result, f"reply_{voice_path.stem}.mp3")
+                            return {
+                                "text": reply_msg,
+                                "voice": str(v_out) if v_out else None
+                            }
 
                 if response.text:
-                    return {"text": f"🎙️ *Jarvis:*\n{response.text}"}
+                    reply_msg = f"🎙️ *Jarvis:*\n{response.text}"
+                    v_out = voice_engine.generate_voice_file_sync(response.text, f"reply_{voice_path.stem}.mp3")
+                    return {
+                        "text": reply_msg,
+                        "voice": str(v_out) if v_out else None
+                    }
             except Exception as e:
                 print(f"Error procesando voz con {model_name}: {e}")
                 continue

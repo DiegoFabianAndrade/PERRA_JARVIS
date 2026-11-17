@@ -11,3 +11,4 @@ requests>=2.31.0
 pywin32>=306
 icalendar>=5.0.0
 matplotlib>=3.8.0
+edge-tts>=7.0.0

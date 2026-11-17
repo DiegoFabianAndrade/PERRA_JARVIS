@@ -34,6 +34,9 @@ from modules import calendar_hub
 from modules import whatsapp_controller
 from modules import weather_service
 from modules import reminder_service
+from modules import remote_test_runner as test_runner
+from modules import git_agent
+from modules import document_analyzer
 from modules.proactive_monitor import monitor
 
 # Memoria temporal de selección de repositorio por usuario
@@ -147,11 +150,12 @@ def get_projects_keyboard() -> InlineKeyboardMarkup:
     """Apartado Antigravity & Repositorios."""
     keyboard = [
         [
-            InlineKeyboardButton("🎯 Enviar Orden al Agente", callback_data="nav_select_repo")
+            InlineKeyboardButton("🎯 Enviar Orden al Agente", callback_data="nav_select_repo"),
+            InlineKeyboardButton("🧪 Correr Pruebas", callback_data="act_proj_test")
         ],
         [
             InlineKeyboardButton("📂 Lista de Repositorios", callback_data="act_proj_list"),
-            InlineKeyboardButton("🌿 Estado Git de Repos", callback_data="act_proj_status")
+            InlineKeyboardButton("🐙 Estado Git & Commits", callback_data="act_proj_status")
         ],
         [
             InlineKeyboardButton("📋 Órdenes y Resultados", callback_data="act_proj_orders")
@@ -407,8 +411,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "act_proj_status":
         user_id = query.from_user.id
         target = USER_SELECTED_REPO.get(user_id, "PERRA_JARVIS")
-        res = antigravity_bridge.get_project_status(target)
+        res = git_agent.get_repo_overview(target)
         await query.message.reply_text(res, parse_mode=ParseMode.MARKDOWN)
+
+    elif data == "act_proj_test":
+        user_id = query.from_user.id
+        target = USER_SELECTED_REPO.get(user_id, "Lab_P1_BluePrints_Java21_API_Andrade_Melo")
+        await query.message.reply_text(f"⏳ Ejecutando pruebas unitarias en `{target}`...")
+        res = test_runner.run_project_tests(target)
+        report = test_runner.format_test_report(res)
+        await query.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
 
     elif data == "act_proj_orders":
         orders = antigravity_bridge.list_pending_orders()
@@ -496,6 +508,12 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_text = result.get("text", "Orden procesada.")
     await update.message.reply_text(reply_text, parse_mode=ParseMode.MARKDOWN)
 
+    if "voice" in result and result["voice"]:
+        v_path = Path(result["voice"])
+        if v_path.exists():
+            with open(v_path, "rb") as vf:
+                await update.message.reply_voice(voice=vf)
+
 
 async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manejador de notas de voz de Diego."""
@@ -523,6 +541,12 @@ async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYP
     reply_text = result.get("text", "Nota de voz procesada.")
     markup = get_main_keyboard() if any(m in reply_text.lower() for m in ["menú", "menu", "opciones"]) else None
     await update.message.reply_text(reply_text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+
+    if "voice" in result and result["voice"]:
+        v_path = Path(result["voice"])
+        if v_path.exists():
+            with open(v_path, "rb") as vf:
+                await update.message.reply_voice(voice=vf)
 
 
 async def handle_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -626,8 +650,40 @@ async def project_status_command(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     p_name = context.args[0] if context.args else "PERRA_JARVIS"
-    res = antigravity_bridge.get_project_status(p_name)
+    res = git_agent.get_repo_overview(p_name)
     await update.message.reply_text(res, parse_mode=ParseMode.MARKDOWN)
+
+
+async def test_runner_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /test <proyecto> para ejecutar pruebas unitarias."""
+    if not is_authorized(update):
+        return
+
+    p_name = context.args[0] if context.args else "Lab_P1_BluePrints_Java21_API_Andrade_Melo"
+    await update.message.reply_text(f"⏳ Ejecutando pruebas unitarias en `{p_name}`...")
+    res = test_runner.run_project_tests(p_name)
+    report = test_runner.format_test_report(res)
+    await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+
+
+async def handle_document_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manejador de documentos, PDFs y archivos enviados por Diego."""
+    if not is_authorized(update):
+        return
+
+    doc = update.message.document
+    if not doc:
+        return
+
+    caption = update.message.caption or ""
+    await update.message.reply_text(f"📑 Analizando `{doc.file_name}` con Gemini...")
+
+    file_obj = await doc.get_file()
+    dest_path = TEMP_DIR / doc.file_name
+    await file_obj.download_to_drive(custom_path=dest_path)
+
+    analysis = document_analyzer.analyze_document_file(dest_path, prompt_override=caption)
+    await update.message.reply_text(analysis, parse_mode=ParseMode.MARKDOWN)
 
 
 def register_handlers(app):
@@ -635,7 +691,8 @@ def register_handlers(app):
     app.add_handler(CommandHandler(["start", "menu"], start_command))
     app.add_handler(CommandHandler(["briefing", "resumen"], briefing_command))
     app.add_handler(CommandHandler("orden", order_command))
-    app.add_handler(CommandHandler("status", project_status_command))
+    app.add_handler(CommandHandler(["status", "git"], project_status_command))
+    app.add_handler(CommandHandler(["test", "tests"], test_runner_command))
     app.add_handler(CommandHandler("wapp", wapp_command))
     app.add_handler(CommandHandler(["correos", "gmail"], lambda u, c: handle_text_message(u, c)))
     app.add_handler(CommandHandler(["agenda", "calendario"], lambda u, c: handle_text_message(u, c)))
@@ -644,4 +701,5 @@ def register_handlers(app):
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo_message))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
