@@ -1,65 +1,76 @@
-# ☁️ PERRA_JARVIS 24/7 - Despliegue en Azure Serverless ($0.00 USD)
+# ☁️ PERRA_JARVIS 24/7 - Arquitectura Híbrida Serverless ($0.00 USD)
 
-Este módulo permite que **PERRA_JARVIS** funcione **24/7 en la nube cuando tu computador personal esté completamente apagado**.
-
----
-
-## 💰 ¿Por qué el costo es $0.00 USD?
-
-En Microsoft Azure (y con tu suscripción de **Azure for Students**):
-1. **Azure Functions (Consumption Plan):** Te da **1,000,000 de ejecuciones gratuitas cada mes de por vida**.
-2. **Cómputo:** Los primeros 400,000 GB-segundos de cómputo al mes son gratis.
-3. **Tu saldo de estudiante ($100 USD):** Queda **100% intacto**. No se consumirá porque el asistente opera dentro del cupo gratuito mensual de Azure.
+Este módulo permite que **PERRA_JARVIS** funcione **24/7 de forma ininterrumpida en la nube**, respondiendo desde tu móvil en Telegram incluso cuando tu computador personal esté **completamente apagado, suspendido o sin conexión**.
 
 ---
 
-## 🔄 ¿Cómo interactúan el PC y Azure?
+## 💰 Verificación de Costo Mínimo: $0.00 USD Garantizado
+
+Operamos bajo una política estricta de costo cero mensual:
+
+1. **Azure Functions (Consumption / Dynamic Plan en Linux):**
+   * **1,000,000 de ejecuciones gratuitas** al mes de por vida.
+   * **400,000 GB-segundos** de cómputo gratis al mes.
+   * Con ~1,000 a 3,000 interacciones al mes, solo consumes el **0.3%** del límite gratuito.
+2. **Cuenta de Almacenamiento Azure (`stperrajarvis125` Standard_LRS):**
+   * Almacenamiento básico de cola y estado (< 15 MB). Costo mensual: ~$0.0003 USD (menos de 2 pesos colombianos), cubierto al 100% por tu suscripción de *Azure for Students*.
+3. **Google Gemini 3.5 Flash Lite:**
+   * Google AI Studio Free Tier (15 peticiones por minuto gratis, $0.00 USD).
+4. **Google Calendar API v3:**
+   * Cupo gratuito oficial de Google Cloud (1,000,000 peticiones diarias gratuitas).
+5. **Open-Meteo & Superfinanciera TRM:**
+   * APIs públicas abiertas con acceso libre ($0.00 USD).
+6. **Tu saldo de estudiante de Azure ($100 USD):**
+   * Permanece **intacto**.
+
+---
+
+## 🔄 Arquitectura Híbrida en Producción
 
 ```
-                     ┌──> [ 💻 Tu PC (Cuando está PRENDIDO) ]
-                     │       • Control total de hardware, pantalla, volumen y apps.
-[ 📱 Tu Telegram ] ──┤
-                     │
-                     └──> [ ☁️ Azure Function (Cuando tu PC está APAGADO) ]
-                             • Responde 24/7 desde la nube.
-                             • Gestiona Gmail, Calendarios, Clima, TRM y Criptos.
-                             • Guarda tus órdenes para el agente de código en cola.
+                       ┌──> [ ☁️ Azure Serverless Core (24/7 SIEMPRE ACTIVO) ]
+                       │       • Responde en Telegram 24/7 con el PC APAGADO.
+                       │       • Atiende mensajes de voz (.ogg) con Gemini Flash Lite.
+                       │       • Gestiona Google Calendar (crear y leer eventos).
+                       │       • Despacha correos vía Gmail SMTP.
+                       │       • Consulta Clima Bogotá y TRM oficial Superfinanciera.
+                       │       • Analiza documentos PDF y código adjunto.
+                       │       • Encola órdenes para cuando tu computador se encienda.
+[ 📱 Tu Telegram ] ────┤
+                       │
+                       └──> [ 💻 Local Windows Companion (Cuando tu PC está ENCENDIDO) ]
+                               • Envía señal de vida (Heartbeat) a la nube cada 25s.
+                               • Ejecuta pantallazos en tiempo real (`pyautogui`).
+                               • Bloquea la sesión de Windows de inmediato.
+                               • Corre suites de pruebas unitarias locales (`mvnw`, `pytest`).
+                               • Monitorea y administra repositorios Git locales.
 ```
 
 ---
 
-## 🚀 Despliegue Rápido en Azure (3 Pasos)
+## 🌐 Recursos Desplegados en Azure
 
-### 1. Iniciar sesión en Azure
-Si tienes instalada la extensión de Azure en VS Code o Azure CLI:
-```bash
-az login
-```
+* **Grupo de Recursos:** `rg-perra-jarvis` (Región: `eastus`)
+* **Storage Account:** `stperrajarvis125` (Standard_LRS)
+* **Function App:** `func-perra-jarvis` (Linux Python 3.11 Serverless)
+* **URL Webhook Oficial:**
+  ```
+  https://func-perra-jarvis.azurewebsites.net/api/telegram_webhook
+  ```
+* **Endpoint de Salud:**
+  ```
+  https://func-perra-jarvis.azurewebsites.net/api/health
+  ```
 
-### 2. Crear el Function App Serverless (Linux / Python)
-```powershell
-# Crear grupo de recursos (ej: en East US 2)
-az group create --name rg-jarvis --location eastus2
+---
 
-# Crear cuenta de almacenamiento básica
-az storage account create --name stjarvisdiego --location eastus2 --resource-group rg-jarvis --sku Standard_LRS
+## 🚀 Cómo Operar el Sistema
 
-# Crear la Azure Function en plan Consumption ($0.00)
-az functionapp create --resource-group rg-jarvis --consumption-plan-location eastus2 --runtime python --runtime-version 3.11 --functions-version 4 --name perra-jarvis-cloud --storage-account stjarvisdiego --os-type Linux
-```
-
-### 3. Configurar Variables y Desplegar Webhook
-Configura las mismas variables de tu `.env`:
-```powershell
-az functionapp config appsettings set --name perra-jarvis-cloud --resource-group rg-jarvis --settings TELEGRAM_BOT_TOKEN="tu_token_aqui" ALLOWED_CHAT_ID="1257398092"
-```
-
-Luego despliega la carpeta `azure/`:
-```bash
-func azure functionapp publish perra-jarvis-cloud
-```
-
-Y enlazas el Webhook de Telegram:
-```
-https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://perra-jarvis-cloud.azurewebsites.net/api/telegram_webhook
-```
+1. **En la Nube (Automático):**
+   * Ya está configurado con Telegram Webhook activo. No requiere ninguna acción tuya.
+2. **En tu PC (Modo Companion):**
+   * Cuando enciendas tu computador, simplemente ejecuta:
+     ```powershell
+     python main.py
+     ```
+   * Detectará automáticamente el Webhook 24/7 activo y sincronizará las funciones locales de hardware sin interrumpir la nube.
