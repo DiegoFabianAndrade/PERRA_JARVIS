@@ -85,9 +85,51 @@ def mark_blob_order_complete_direct(order_id: int, result_text: str = ""):
         logging.error(f"Error marcando orden en Blob directo: {e}")
 
 
+def check_and_dispatch_reminders_local():
+    """Vigila recordatorios cumplidos en Azure Blob Storage como respaldo local."""
+    url = f"{AZURE_BLOB_SAS_URL}/reminders.json?{AZURE_BLOB_SAS_QUERY}"
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as res:
+            if res.status != 200:
+                return
+            reminders = json.loads(res.read().decode("utf-8"))
+
+        now_ts = time.time()
+        modified = False
+        for r in reminders:
+            if not r.get("notified") and now_ts >= r.get("due_timestamp", 0):
+                r["notified"] = True
+                r["notified_at"] = now_ts
+                modified = True
+                msg = (
+                    "🔔 *¡RECORDATORIO PUNTUAL!* 🔔\n"
+                    "─────────────────────────────\n"
+                    f"📌 *Tarea:* _{r['text']}_\n"
+                    f"⏰ *Programado:* `{r.get('due_time_str', 'Ahora')}`\n"
+                    "─────────────────────────────\n"
+                    "✨ _Notificación entregada por tu PC._"
+                )
+                send_telegram_msg(msg)
+                logging.info(f"🔔 Recordatorio #{r['id']} despachado desde PC local.")
+
+        if modified:
+            raw = json.dumps(reminders, ensure_ascii=False, indent=2).encode("utf-8")
+            put_req = urllib.request.Request(
+                url,
+                data=raw,
+                headers={"x-ms-blob-type": "BlockBlob", "Content-Type": "application/json"},
+                method="PUT"
+            )
+            urllib.request.urlopen(put_req, timeout=6)
+    except Exception as e:
+        logging.debug(f"Check reminders local bypassed: {e}")
+
+
 # ─────────────────────────────────────────────────────────────
 # 2. COMUNICACIÓN CON AZURE Y TELEGRAM
 # ─────────────────────────────────────────────────────────────
+
 def get_system_telemetry():
     """Obtiene métricas de hardware de la máquina local."""
     try:
@@ -322,6 +364,9 @@ def run_companion():
             if now - last_hb >= 25:
                 send_heartbeat()
                 last_hb = now
+
+            # Revisar recordatorios pendientes cada ciclo
+            check_and_dispatch_reminders_local()
 
             # Revisar órdenes pendientes cada 3 segundos
             orders = get_pending_orders()

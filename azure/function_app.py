@@ -22,7 +22,7 @@ import azure.functions as func
 # ─────────────────────────────────────────────────────────────
 # 1. CONFIGURACIÓN Y VARIABLES DE ENTORNO
 # ─────────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9115868775:AAFd3FBROZJ7jKfi49-cv_ts8iwPQEFyHaY")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "1257398092"))
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GMAIL_USER = os.getenv("GMAIL_USER", "diegofabian105@gmail.com")
@@ -343,6 +343,171 @@ def fetch_google_calendar_events(days: int = 1) -> list:
     except Exception as e:
         logging.error(f"Error consultando Google Calendar: {e}")
         return []
+
+def create_google_calendar_event(summary: str, start_dt: datetime.datetime, end_dt: datetime.datetime, description: str = "") -> dict:
+    """Inserta un evento o recordatorio en Google Calendar con notificación en iPhone."""
+    token = get_google_access_token()
+    if not token:
+        return {"success": False, "message": "No hay credenciales activas de Google Calendar."}
+
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    payload = {
+        "summary": summary,
+        "description": description or "Creado automáticamente por PERRA_JARVIS 24/7",
+        "start": {"dateTime": start_dt.isoformat()},
+        "end": {"dateTime": end_dt.isoformat()},
+        "reminders": {
+            "useDefault": False,
+            "overrides": [
+                {"method": "popup", "minutes": 0},
+                {"method": "popup", "minutes": 5}
+            ]
+        }
+    }
+
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=8) as res:
+            res_data = json.loads(res.read().decode("utf-8"))
+            return {"success": True, "link": res_data.get("htmlLink", "")}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────
+# 6.5. GESTOR DE RECORDATORIOS 24/7 EN LA NUBE (PERSISTENCIA TOTAL)
+# ─────────────────────────────────────────────────────────────
+BOGOTA_TZ = datetime.timezone(datetime.timedelta(hours=-5))
+
+def parse_reminder_expression(text: str) -> tuple:
+    """Parsea una orden de recordatorio con alta precisión en español (UTC-5 Bogotá)."""
+    now = datetime.datetime.now(BOGOTA_TZ)
+    s = text.strip()
+
+    # Patrón 1: 'recuérdame en 15 minutos sacar la ropa' o 'a las 5:30 pm...'
+    p1 = r'(?:recu[eé]rdame|av[ií]same|pon(?:er)?\s+un\s+recordatorio|crear?\s+recordatorio|haz\s+un\s+recordatorio)\s+(?:en\s+(\d+)\s+min(?:utos?)?|a\s+las?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)\s+(?:de\s+|que\s+|para\s+)?(.+)'
+    m1 = re.search(p1, s, re.I)
+    if m1:
+        mins, hr, mn, ampm, task = m1.groups()
+        if mins:
+            target_dt = now + datetime.timedelta(minutes=int(mins))
+            return task.strip(), target_dt
+        elif hr:
+            h = int(hr)
+            minute = int(mn) if mn else 0
+            if ampm and ampm.lower() == "pm" and h < 12:
+                h += 12
+            elif ampm and ampm.lower() == "am" and h == 12:
+                h = 0
+            elif not ampm and h < 7:
+                h += 12
+            target_dt = now.replace(hour=h, minute=minute, second=0, microsecond=0)
+            if target_dt <= now:
+                target_dt += datetime.timedelta(days=1)
+            return task.strip(), target_dt
+
+    # Patrón 2: 'recuérdame sacar la ropa en 15 minutos'
+    p2 = r'(?:recu[eé]rdame|av[ií]same)\s+(?:de\s+|que\s+|para\s+)?(.+?)\s+en\s+(\d+)\s+min(?:utos?)?'
+    m2 = re.search(p2, s, re.I)
+    if m2:
+        task, mins = m2.groups()
+        target_dt = now + datetime.timedelta(minutes=int(mins))
+        return task.strip(), target_dt
+
+    return None, None
+
+
+def add_cloud_reminder(task: str, target_dt: datetime.datetime) -> dict:
+    """Registra un recordatorio persistente en Azure Blob Storage y en Google Calendar."""
+    reminders = load_persistent_json("reminders.json", default=[])
+    rem_id = int(time.time() * 1000)
+    time_str = target_dt.strftime("%I:%M %p (%d/%b)")
+
+    item = {
+        "id": rem_id,
+        "text": task,
+        "due_timestamp": target_dt.timestamp(),
+        "due_iso": target_dt.isoformat(),
+        "due_time_str": time_str,
+        "created_at": time.time(),
+        "notified": False
+    }
+    reminders.append(item)
+    save_persistent_json("reminders.json", reminders)
+
+    # Crear evento de respaldo en Google Calendar (alerta iPhone)
+    try:
+        end_dt = target_dt + datetime.timedelta(minutes=15)
+        create_google_calendar_event(f"🔔 {task}", target_dt, end_dt, "Recordatorio programado por PERRA_JARVIS 24/7")
+    except Exception as e:
+        logging.warning(f"No se pudo crear evento en Google Calendar: {e}")
+
+    logging.info(f"Recordatorio #{rem_id} guardado con éxito: {task} para {time_str}")
+    return item
+
+def check_and_dispatch_reminders() -> list:
+    """Verifica si hay recordatorios cumplidos y dispara notificaciones push a Telegram."""
+    reminders = load_persistent_json("reminders.json", default=[])
+    now_ts = time.time()
+    dispatched = []
+    modified = False
+
+    for r in reminders:
+        if not r.get("notified") and now_ts >= r.get("due_timestamp", 0):
+            r["notified"] = True
+            r["notified_at"] = now_ts
+            modified = True
+            dispatched.append(r)
+
+            msg = (
+                "🔔 *¡RECORDATORIO PUNTUAL!* 🔔\n"
+                "─────────────────────────────\n"
+                f"📌 *Tarea:* _{r['text']}_\n"
+                f"⏰ *Programado:* `{r.get('due_time_str', 'Ahora')}`\n"
+                "─────────────────────────────\n"
+                "✨ _Notificación push 24/7 desde la nube de Azure._"
+            )
+            send_telegram_message(ALLOWED_CHAT_ID, msg)
+            logging.info(f"🔔 Recordatorio #{r['id']} despachado a Telegram!")
+
+    if modified:
+        save_persistent_json("reminders.json", reminders)
+
+    return dispatched
+
+def list_active_reminders_text() -> str:
+    """Genera un reporte de recordatorios activos pendientes."""
+    reminders = load_persistent_json("reminders.json", default=[])
+    now_ts = time.time()
+    active = [r for r in reminders if not r.get("notified") and r.get("due_timestamp", 0) > now_ts]
+
+    if not active:
+        return (
+            "🔔 *CENTRO DE RECORDATORIOS 24/7*\n"
+            "─────────────────────────────\n"
+            "🎉 _No tienes recordatorios pendientes en la nube._\n\n"
+            "💡 *¿Cómo programar uno?*\n"
+            "Dímelo por texto o voz:\n"
+            "• _'Recuérdame en 15 minutos sacar la ropa'_\n"
+            "• _'Recuérdame a las 5:30 pm revisar el correo'_\n"
+            "• _'/recordatorio en 30 min apagar la estufa'_\n"
+            "─────────────────────────────"
+        )
+
+    lines = ["🔔 *TUS RECORDATORIOS ACTIVOS (NUBE 24/7):*"]
+    lines.append("─────────────────────────────")
+    for r in active:
+        mins_left = max(1, int((r["due_timestamp"] - now_ts) / 60))
+        lines.append(f"• ⏰ `{r.get('due_time_str')}` (en ~{mins_left} min): *{r['text']}*")
+    lines.append("─────────────────────────────")
+    lines.append("✨ _Sonarán en Telegram y en tu iPhone aunque tu computador esté apagado._")
+    return "\n".join(lines)
+
 
 def fetch_trm() -> str:
     """Consulta la TRM oficial de Colombia desde Datos Abiertos Superfinanciera."""
@@ -837,7 +1002,28 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
             send_telegram_message(user_id, f"📦 *Orden #{order['id']}:* Consulta de Git para `{repo}`.\nEstado: {status_txt}")
             return func.HttpResponse("OK", status_code=200)
 
-        # 4. Enviar correo electrónico
+        # 4. Recordatorios y Alarmas 24/7
+        if q in ["/recordatorios", "recordatorios", "mis recordatorios", "alarmas", "ver recordatorios"]:
+            send_telegram_message(user_id, list_active_reminders_text())
+            return func.HttpResponse("OK", status_code=200)
+
+        # Parsing de recordatorio (ej: 'recuérdame en 15 minutos sacar la ropa', 'a las 5:30 pm...')
+        rem_task, rem_dt = parse_reminder_expression(text)
+        if rem_task and rem_dt:
+            rem = add_cloud_reminder(rem_task, rem_dt)
+            send_telegram_message(
+                user_id,
+                f"🔔 *RECORDATORIO PROGRAMADO (NUBE 24/7)*\n"
+                "─────────────────────────────\n"
+                f"📌 *Tarea:* _{rem_task}_\n"
+                f"⏰ *Hora:* `{rem_dt.strftime('%I:%M %p (%d/%b)')}`\n"
+                f"📱 *Sincronización:* Telegram Push + Alarma iPhone (Google Calendar)\n"
+                "─────────────────────────────\n"
+                "✨ _Te avisaré puntualmente con sonido aunque tu computador esté apagado._"
+            )
+            return func.HttpResponse("OK", status_code=200)
+
+        # 5. Enviar correo electrónico
         if q.startswith("manda un correo") or q.startswith("enviar correo") or q.startswith("enviar email"):
             extract_prompt = (
                 f"Extrae el destinatario, asunto y cuerpo del siguiente mensaje: '{text}'. "
@@ -946,11 +1132,19 @@ def pc_orders_complete(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         return func.HttpResponse(json.dumps({"error": str(e)}), status_code=500, mimetype="application/json")
 
+@app.timer_trigger(schedule="0 */1 * * * *", arg_name="myTimer", run_on_startup=False)
+def reminders_cron(myTimer: func.TimerRequest) -> None:
+    """Cron serverless cada 1 minuto para vigilar y disparar recordatorios cumplidos en Azure ($0.00 USD)."""
+    check_and_dispatch_reminders()
+
+
 @app.route(route="health", methods=["GET"])
 def health(req: func.HttpRequest) -> func.HttpResponse:
     """Health check 24/7 de Azure Function y almacenamiento persistente."""
     orders = load_persistent_json("orders.json", default=[])
     pending = len([o for o in orders if o.get("status") == "pending"])
+    reminders = load_persistent_json("reminders.json", default=[])
+    active_rem = len([r for r in reminders if not r.get("notified") and r.get("due_timestamp", 0) > time.time()])
     online, st = is_pc_online()
     return func.HttpResponse(json.dumps({
         "status": "healthy",
@@ -959,5 +1153,7 @@ def health(req: func.HttpRequest) -> func.HttpResponse:
         "monthly_cost": "$0.00 USD",
         "pc_online": online,
         "pending_orders": pending,
+        "active_reminders": active_rem,
         "timestamp": time.time()
     }), mimetype="application/json")
+

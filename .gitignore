@@ -21,7 +21,10 @@ REMOTE_RESULTS.jsonl
 *.log
 temp/
 *.png
-test_*
+/test_*
+!tests/**
+tests/**/__pycache__/
+*.pyc
 
 # IDEs
 .idea/
