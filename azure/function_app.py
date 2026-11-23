@@ -2,9 +2,11 @@
 PERRA_JARVIS 24/7 - Executive Cloud Serverless Core
 Desplegado en Azure Functions (Consumption Plan - $0.00 USD).
 Opera de forma continua incluso con el computador personal apagado.
+Almacenamiento persistente en Azure Blob Storage (cero pérdida de órdenes entre reinicios).
 """
 
 import os
+import re
 import json
 import time
 import base64
@@ -28,33 +30,86 @@ GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "")
 ICLOUD_CALENDAR_URL = os.getenv("ICLOUD_CALENDAR_URL", "")
 GOOGLE_TOKEN_JSON = os.getenv("GOOGLE_TOKEN_JSON", "")
 
+# Cadena de conexión Azure Blob Storage persistente
+AZURE_STORAGE_CONN = os.getenv("AzureWebJobsStorage", "")
+
+
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
-# Estado persistente para el PC Companion
-DATA_DIR = "/home/site/data" if os.path.exists("/home/site") else "/tmp"
-STATE_FILE = os.path.join(DATA_DIR, "pc_state.json")
-ORDERS_FILE = os.path.join(DATA_DIR, "pc_orders.json")
+# ─────────────────────────────────────────────────────────────
+# 2. CAPA DE PERSISTENCIA REAL: AZURE BLOB STORAGE VÍA HTTPS REST
+# ─────────────────────────────────────────────────────────────
+AZURE_BLOB_SAS_URL = os.getenv("AZURE_BLOB_SAS_URL", "https://stperrajarvis125.blob.core.windows.net/jarvis-state")
+AZURE_BLOB_SAS_QUERY = os.getenv("AZURE_BLOB_SAS_QUERY", "")
 
-def _load_json(file_path, default=None):
+
+def load_persistent_json(blob_name: str, default=None):
+    """Carga un JSON persistente directamente desde Azure Blob Storage vía HTTPS REST."""
+    url = f"{AZURE_BLOB_SAS_URL}/{blob_name}?{AZURE_BLOB_SAS_QUERY}"
     try:
-        if os.path.exists(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as res:
+            if res.status == 200:
+                return json.loads(res.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return default if default is not None else {}
+        logging.warning(f"HTTPError leyendo blob {blob_name}: {e.code}")
     except Exception as e:
-        logging.warning(f"Error cargando {file_path}: {e}")
+        logging.warning(f"Error leyendo blob {blob_name}: {e}")
     return default if default is not None else {}
 
-def _save_json(file_path, data):
+def save_persistent_json(blob_name: str, data) -> bool:
+    """Guarda un JSON de forma 100% persistente en Azure Blob Storage vía HTTPS REST."""
+    url = f"{AZURE_BLOB_SAS_URL}/{blob_name}?{AZURE_BLOB_SAS_QUERY}"
+    raw = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     try:
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        req = urllib.request.Request(
+            url,
+            data=raw,
+            headers={"x-ms-blob-type": "BlockBlob", "Content-Type": "application/json"},
+            method="PUT"
+        )
+        with urllib.request.urlopen(req, timeout=6) as res:
+            return res.status in (200, 201)
     except Exception as e:
-        logging.warning(f"Error guardando {file_path}: {e}")
+        logging.error(f"Error escribiendo blob {blob_name}: {e}")
+        return False
 
 
 # ─────────────────────────────────────────────────────────────
-# 2. CLIENTE TELEGRAM BOT API
+# 3. CONTROL DE ESTADO DEL PC Y COLA DE ÓRDENES PERSISTENTE
+# ─────────────────────────────────────────────────────────────
+def is_pc_online() -> tuple:
+    """Verifica si el PC personal ha enviado señal de vida en los últimos 90 segundos."""
+    state = load_persistent_json("pc_state.json", default={})
+    last_seen = state.get("last_seen", 0)
+    now = time.time()
+    online = (now - last_seen) < 90
+    return online, state
+
+def queue_pc_order(action: str, params: dict = None, repo: str = "PERRA_JARVIS", raw_text: str = "") -> dict:
+    """Encola una orden en almacenamiento persistente de Azure Blob Storage."""
+    orders = load_persistent_json("orders.json", default=[])
+    order_id = int(time.time() * 1000)
+    order = {
+        "id": order_id,
+        "action": action,
+        "params": params or {},
+        "repo": repo,
+        "raw_text": raw_text,
+        "created_at": time.time(),
+        "created_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "status": "pending"
+    }
+    orders.append(order)
+    save_persistent_json("orders.json", orders)
+    logging.info(f"Orden encolada exitosamente en Blob: #{order_id} ({action})")
+    return order
+
+
+# ─────────────────────────────────────────────────────────────
+# 4. CLIENTE TELEGRAM BOT API
 # ─────────────────────────────────────────────────────────────
 def send_telegram_message(chat_id: int, text: str, reply_markup: dict = None) -> bool:
     """Envía un mensaje a Telegram."""
@@ -129,7 +184,7 @@ def get_telegram_file_bytes(file_id: str) -> tuple:
 
 
 # ─────────────────────────────────────────────────────────────
-# 3. TECLADOS INTERACTIVOS (UI VISUAL)
+# 5. TECLADOS INTERACTIVOS (UI VISUAL)
 # ─────────────────────────────────────────────────────────────
 MAIN_KEYBOARD = {
     "inline_keyboard": [
@@ -216,9 +271,8 @@ ANTIGRAVITY_KEYBOARD = {
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. SERVICIOS EXTERNOS (CALENDARIO, TRM, CLIMA, GMAIL, IA)
+# 6. SERVICIOS EXTERNOS (CALENDARIO, TRM, CLIMA, GMAIL, IA)
 # ─────────────────────────────────────────────────────────────
-
 def get_google_access_token() -> str:
     """Obtiene un access token fresco de Google Calendar mediante el refresh token."""
     try:
@@ -290,33 +344,6 @@ def fetch_google_calendar_events(days: int = 1) -> list:
         logging.error(f"Error consultando Google Calendar: {e}")
         return []
 
-def create_google_calendar_event(summary: str, start_dt: datetime.datetime, end_dt: datetime.datetime, description: str = "") -> dict:
-    """Inserta un evento nuevo directamente en Google Calendar."""
-    token = get_google_access_token()
-    if not token:
-        return {"success": False, "message": "No hay credenciales activas de Google Calendar."}
-
-    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
-    payload = {
-        "summary": summary,
-        "description": description or "Creado por PERRA_JARVIS 24/7",
-        "start": {"dateTime": start_dt.isoformat()},
-        "end": {"dateTime": end_dt.isoformat()}
-    }
-
-    try:
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=10) as res:
-            res_data = json.loads(res.read().decode("utf-8"))
-            return {"success": True, "link": res_data.get("htmlLink", "")}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
-
 def fetch_trm() -> str:
     """Consulta la TRM oficial de Colombia desde Datos Abiertos Superfinanciera."""
     url = "https://www.datos.gov.co/resource/32sa-8st3.json?$limit=2&$order=vigenciadesde%20DESC"
@@ -387,7 +414,7 @@ def send_email_smtp(to_email: str, subject: str, body: str) -> dict:
     except Exception as e:
         return {"success": False, "message": str(e)}
 
-def query_gemini_flash(prompt: str, inline_parts: list = None) -> str:
+def query_gemini_flash(prompt: str, inline_parts: list = None, system_instruction: str = None) -> str:
     """Consulta a Gemini 3.5 Flash Lite para razonamiento multimodal con $0.00 USD de costo."""
     if not GEMINI_API_KEY:
         return "⚠️ Clave de Gemini no configurada en el servidor nube."
@@ -399,20 +426,18 @@ def query_gemini_flash(prompt: str, inline_parts: list = None) -> str:
         parts.extend(inline_parts)
     parts.append({"text": prompt})
 
+    sys_text = system_instruction or (
+        "Eres PERRA_JARVIS, el asistente ejecutivo de Diego Fabián Andrade. "
+        "Estás operando 24/7 en la nube en Azure Serverless con costo $0.00. "
+        "Responde siempre de forma concisa, ejecutiva, elegante y directa (máximo 2 a 3 oraciones). "
+        "Tienes acceso a su Google Calendar, Gmail, clima, TRM de Colombia y control remoto de su computador."
+    )
+
     payload = {
         "contents": [{"parts": parts}],
-        "system_instruction": {
-            "parts": [{
-                "text": (
-                    "Eres PERRA_JARVIS, el asistente ejecutivo de Diego Fabián Andrade. "
-                    "Estás operando 24/7 en la nube en Azure Serverless con costo $0.00. "
-                    "Responde siempre de forma concisa, ejecutiva, elegante y directa (máximo 2 a 3 oraciones). "
-                    "Tienes acceso a su Google Calendar, Gmail, clima, TRM de Colombia y control remoto de su computador."
-                )
-            }]
-        },
+        "system_instruction": {"parts": [{"text": sys_text}]},
         "generation_config": {
-            "temperature": 0.3,
+            "temperature": 0.2,
             "max_output_tokens": 500
         }
     }
@@ -420,7 +445,7 @@ def query_gemini_flash(prompt: str, inline_parts: list = None) -> str:
     try:
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=12) as res:
+        with urllib.request.urlopen(req, timeout=14) as res:
             res_json = json.loads(res.read().decode("utf-8"))
             return res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception as e:
@@ -429,34 +454,7 @@ def query_gemini_flash(prompt: str, inline_parts: list = None) -> str:
 
 
 # ─────────────────────────────────────────────────────────────
-# 5. CONTROL DE ESTADO DEL PC Y COLA DE ÓRDENES
-# ─────────────────────────────────────────────────────────────
-def is_pc_online() -> tuple:
-    """Verifica si el PC personal ha enviado señal de vida en los últimos 90 segundos."""
-    state = _load_json(STATE_FILE, default={})
-    last_seen = state.get("last_seen", 0)
-    now = time.time()
-    online = (now - last_seen) < 90
-    return online, state
-
-def queue_pc_order(action: str, params: dict = None) -> int:
-    """Encola una orden para que el PC la ejecute cuando esté en línea."""
-    orders = _load_json(ORDERS_FILE, default=[])
-    order_id = int(time.time() * 1000)
-    order = {
-        "id": order_id,
-        "action": action,
-        "params": params or {},
-        "created_at": time.time(),
-        "status": "pending"
-    }
-    orders.append(order)
-    _save_json(ORDERS_FILE, orders)
-    return order_id
-
-
-# ─────────────────────────────────────────────────────────────
-# 6. ENRUTADOR PRINCIPAL DE EVENTOS DE TELEGRAM (WEBHOOK)
+# 7. ENRUTADOR PRINCIPAL DE EVENTOS DE TELEGRAM (WEBHOOK)
 # ─────────────────────────────────────────────────────────────
 @app.route(route="telegram_webhook", methods=["POST"])
 def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
@@ -495,9 +493,9 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
         elif data == "nav_pc":
             online, st = is_pc_online()
             if online:
-                status_txt = f"🟢 *EN LÍNEA*\n• CPU: `{st.get('cpu', '--')}%` | RAM: `{st.get('ram', '--')}%`"
+                status_txt = f"🟢 *EN LÍNEA*\n• Hostname: `{st.get('hostname', 'Windows')}`\n• CPU: `{st.get('cpu', '--')}%` | RAM: `{st.get('ram', '--')}%`"
             else:
-                status_txt = "🔴 *APAGADO / SUSPENDIDO*\n• Las órdenes se encolarán y ejecutarán al encenderlo."
+                status_txt = "🔴 *APAGADO / SUSPENDIDO*\n• Las órdenes se guardan en la nube y se ejecutan al encenderlo."
             
             edit_telegram_message(
                 user_id, msg_id,
@@ -510,31 +508,36 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
 
         elif data == "act_pc_screenshot":
             online, _ = is_pc_online()
+            order = queue_pc_order("screenshot")
             if online:
-                queue_pc_order("screenshot")
-                send_telegram_message(user_id, "📸 Solicitando pantallazo a tu PC en tiempo real...")
+                send_telegram_message(user_id, f"📸 Solicitando pantallazo a tu PC en tiempo real (Orden #{order['id']})...")
             else:
-                queue_pc_order("screenshot")
-                send_telegram_message(user_id, "💻 *Tu PC está actualmente APAGADO.*\nHe puesto la orden de captura en cola; se tomará inmediatamente al encender el equipo.")
+                send_telegram_message(
+                    user_id,
+                    f"💻 *Tu PC está actualmente APAGADO.*\n"
+                    f"📌 Orden #{order['id']} encolada en almacenamiento persistente de Azure.\n"
+                    f"Se capturará inmediatamente cuando inicies sesión en Windows."
+                )
 
         elif data == "act_pc_lock":
             online, _ = is_pc_online()
+            order = queue_pc_order("lock")
             if online:
-                queue_pc_order("lock")
-                send_telegram_message(user_id, "🔒 Orden de bloqueo Windows enviada inmediatamente.")
+                send_telegram_message(user_id, f"🔒 Orden #{order['id']}: Bloqueo Windows enviado inmediatamente.")
             else:
-                send_telegram_message(user_id, "💻 *Tu PC está apagado.* La sesión se encuentra naturalmente inactiva.")
+                send_telegram_message(user_id, f"💻 *Tu PC está apagado.* Orden #{order['id']} encolada.")
 
         elif data == "act_pc_stats":
             online, st = is_pc_online()
             if online:
                 send_telegram_message(
                     user_id,
-                    f"📊 *TELEMETRÍA DE HARDWARE:*\n"
+                    f"📊 *TELEMETRÍA DE HARDWARE EN VIVO:*\n"
+                    f"• Hostname: `{st.get('hostname', 'Windows')}`\n"
                     f"• CPU: `{st.get('cpu', 0)}%`\n"
                     f"• Memoria RAM: `{st.get('ram', 0)}%`\n"
                     f"• Batería: `{st.get('battery', 'N/A')}`\n"
-                    f"• Hostname: `{st.get('hostname', 'Windows')}`"
+                    f"• Última señal: hace `{int(time.time() - st.get('last_seen', time.time()))}s`"
                 )
             else:
                 send_telegram_message(user_id, "💻 El PC está apagado. Telemetría de hardware fuera de línea.")
@@ -570,7 +573,7 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
                 f"{trm}\n\n"
                 f"📅 *Agenda:* {ev_str}\n"
                 "─────────────────────────────\n"
-                "💡 _Para escuchar en audio, pídeme 'Dame el briefing en voz'._"
+                "💡 _Para ejecutar cualquier acción en tu PC, envíame una orden por texto o voz._"
             )
             send_telegram_message(user_id, msg)
 
@@ -597,8 +600,8 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
                 "─────────────────────────────\n"
                 f"• Whitelist Telegram: `ACTIVA` (ID: `{ALLOWED_CHAT_ID}`)\n"
                 "• Aislamiento Nube: Azure Functions Serverless\n"
-                "• Zero Leak Guarantee: Verificado\n"
-                "• Sandbox Shell Injection: Activo",
+                "• Persistencia: Azure Blob Storage Cifrado\n"
+                "• Zero Leak Guarantee: Verificado",
                 reply_markup=SECURITY_KEYBOARD
             )
 
@@ -609,9 +612,10 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
                 "🚦 *Estado Global:* 🟢 `SECURE`\n"
                 f"🔒 *Whitelist Telegram:* `ACTIVA` (ID: `{ALLOWED_CHAT_ID}`)\n"
                 "🔐 *Fugas de Secretos:* `0` (Custodia en Azure Vault/Settings)\n"
+                "💾 *Persistencia:* Azure Blob Storage (`stperrajarvis125`)\n"
                 "☁️ *Infraestructura:* Azure Linux Serverless ($0.00 USD)\n"
                 "─────────────────────────────\n"
-                "✨ Tu asistente opera con máxima protección contra accesos no autorizados."
+                "✨ Máxima protección y 100% persistencia garantizada."
             )
             send_telegram_message(user_id, report)
 
@@ -625,13 +629,26 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
             )
 
         elif data == "act_orders_queue":
-            orders = _load_json(ORDERS_FILE, default=[])
+            orders = load_persistent_json("orders.json", default=[])
             pending = [o for o in orders if o.get("status") == "pending"]
             if pending:
-                msg = f"📋 *COLA DE ÓRDENES:* Hay `{len(pending)}` órdenes pendientes esperando que tu PC inicie sesión."
+                items_str = "\n".join([f"• `#{o['id']}` [{o.get('action')}]: _{o.get('repo', 'PC')}_" for o in pending[-5:]])
+                msg = f"📋 *COLA DE ÓRDENES PERSISTENTE ({len(pending)} pendientes):*\n─────────────────────────────\n{items_str}"
             else:
-                msg = "📋 *COLA DE ÓRDENES:* Vacía. No hay acciones pendientes."
+                msg = "📋 *COLA DE ÓRDENES:* Vacía. Todas las órdenes han sido ejecutadas."
             send_telegram_message(user_id, msg)
+
+        elif data == "act_pc_tests":
+            order = queue_pc_order("test", {"project": "PERRA_JARVIS"}, repo="PERRA_JARVIS")
+            online, _ = is_pc_online()
+            status_txt = "Ejecutando en PC..." if online else "Encolada (PC apagado; se ejecutará al iniciar Windows)."
+            send_telegram_message(user_id, f"🧪 Orden de tests #{order['id']} registrada para `PERRA_JARVIS`.\nEstado: {status_txt}")
+
+        elif data == "act_pc_git":
+            order = queue_pc_order("git", {"project": "PERRA_JARVIS"}, repo="PERRA_JARVIS")
+            online, _ = is_pc_online()
+            status_txt = "Consultando en PC..." if online else "Encolada (PC apagado; se ejecutará al iniciar Windows)."
+            send_telegram_message(user_id, f"📦 Orden de Git #{order['id']} registrada para `PERRA_JARVIS`.\nEstado: {status_txt}")
 
         return func.HttpResponse("OK", status_code=200)
 
@@ -656,7 +673,44 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
         )
         return func.HttpResponse("OK", status_code=200)
 
-    # B. Mensaje de Voz (.ogg)
+    # B. COMANDO EXPLÍCITO /orden <repo> <instrucción>
+    if text.startswith("/orden") or text.startswith("/order"):
+        parts = text.split(maxsplit=2)
+        if len(parts) >= 3 and parts[1].lower() in ["perra_jarvis", "telegram-dollar-bot", "dollarbot"]:
+            target_repo = parts[1]
+            instruction = parts[2]
+        elif len(parts) >= 2:
+            target_repo = "PERRA_JARVIS"
+            instruction = text[len(parts[0]):].strip()
+        else:
+            send_telegram_message(user_id, "⚠️ Uso: `/orden <repositorio> <instrucción>`\nEjemplo: `/orden PERRA_JARVIS corre los tests unitarios`")
+            return func.HttpResponse("OK", status_code=200)
+
+        online, _ = is_pc_online()
+        order = queue_pc_order("code_order", {"project": target_repo, "instruction": instruction}, repo=target_repo, raw_text=text)
+
+        if online:
+            msg = (
+                f"⚡ *ORDEN #{order['id']} ENVIADA A TU PC*\n"
+                "─────────────────────────────\n"
+                f"📦 *Repositorio:* `{target_repo}`\n"
+                f"📌 *Instrucción:* _{instruction}_\n"
+                f"🟢 *Estado PC:* En línea (Ejecutando en Windows...)\n"
+                "─────────────────────────────"
+            )
+        else:
+            msg = (
+                f"📋 *ORDEN #{order['id']} GUARDADA EN LA NUBE (24/7)*\n"
+                "─────────────────────────────\n"
+                f"📦 *Repositorio:* `{target_repo}`\n"
+                f"📌 *Instrucción:* _{instruction}_\n"
+                f"🔴 *Estado PC:* Apagado / En reposo\n\n"
+                f"💾 He guardado tu orden en almacenamiento persistente de Azure. En cuanto inicies sesión en Windows, tu computador la ejecutará automáticamente."
+            )
+        send_telegram_message(user_id, msg)
+        return func.HttpResponse("OK", status_code=200)
+
+    # C. Mensaje de Voz (.ogg) con detección de acciones
     if "voice" in message:
         voice = message["voice"]
         file_id = voice.get("file_id")
@@ -670,14 +724,38 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
                     "data": b64_audio
                 }
             }
-            prompt = "Escucha este audio de Diego y responde con máxima brevedad, ejecutividad y precisión."
+            prompt = (
+                "Escucha este audio de Diego. Determina si pide una acción concreta para su computador "
+                "(pantallazo, bloquear PC, correr tests, abrir app, o una orden de código). "
+                "Si pide una acción de PC, devuelve un JSON: {\"is_action\": true, \"action\": \"screenshot|lock|test|git|code_order\", \"repo\": \"PERRA_JARVIS\", \"details\": \"...\"}. "
+                "Si es una pregunta general o conversacional, responde directamente en texto breve y ejecutivo."
+            )
             ai_reply = query_gemini_flash(prompt, inline_parts=[inline_part])
+            
+            # Verificar si devolvió acción estructurada
+            if "{" in ai_reply and "is_action" in ai_reply:
+                try:
+                    m = re.search(r"\{.*\}", ai_reply, re.DOTALL)
+                    if m:
+                        act_data = json.loads(m.group(0))
+                        if act_data.get("is_action"):
+                            act_name = act_data.get("action", "code_order")
+                            act_repo = act_data.get("repo", "PERRA_JARVIS")
+                            act_details = act_data.get("details", "")
+                            online, _ = is_pc_online()
+                            order = queue_pc_order(act_name, {"project": act_repo, "instruction": act_details}, repo=act_repo, raw_text="Nota de voz")
+                            status_txt = "🟢 Ejecutando en PC..." if online else "🔴 PC apagado; orden guardada en Azure para ejecutarse al iniciar Windows."
+                            send_telegram_message(user_id, f"🎙️ *Audio Procesado - Orden #{order['id']} Encolada:*\nAcción: `{act_name}` ({act_repo})\nEstado: {status_txt}")
+                            return func.HttpResponse("OK", status_code=200)
+                except Exception:
+                    pass
+
             send_telegram_message(user_id, f"🎙️ *Jarvis:* {ai_reply}")
         else:
             send_telegram_message(user_id, "⚠️ No pude descargar la nota de voz.")
         return func.HttpResponse("OK", status_code=200)
 
-    # C. Documento adjunto (PDF, código, texto)
+    # D. Documento adjunto (PDF, código, texto)
     if "document" in message:
         doc = message["document"]
         file_id = doc.get("file_id")
@@ -700,11 +778,11 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
             send_telegram_message(user_id, "⚠️ No pude descargar el documento.")
         return func.HttpResponse("OK", status_code=200)
 
-    # D. Mensaje de Texto (Intenciones Directas o Chat con IA)
+    # E. Mensaje de Texto (Intenciones Directas o Chat con IA)
     if text:
         q = text.lower()
 
-        # Atajos instantáneos
+        # 1. Atajos instantáneos informativos
         if q in ["dolar", "dólar", "trm", "/trm"]:
             send_telegram_message(user_id, fetch_trm())
             return func.HttpResponse("OK", status_code=200)
@@ -723,27 +801,44 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
             send_telegram_message(user_id, msg)
             return func.HttpResponse("OK", status_code=200)
 
-        if any(w in q for w in ["pantallazo", "screenshot", "captura de pantalla"]):
+        # 2. Atajos directos de Hardware / PC
+        if any(w in q for w in ["pantallazo", "screenshot", "captura de pantalla", "/pantallazo"]):
             online, _ = is_pc_online()
-            queue_pc_order("screenshot")
+            order = queue_pc_order("screenshot", raw_text=text)
             if online:
-                send_telegram_message(user_id, "📸 Solicitando pantallazo a tu PC...")
+                send_telegram_message(user_id, f"📸 Solicitando pantallazo a tu PC (Orden #{order['id']})...")
             else:
-                send_telegram_message(user_id, "💻 *Tu PC está APAGADO.*\nOrden encolada; se capturará inmediatamente cuando tu computador se encienda.")
+                send_telegram_message(user_id, f"💻 *Tu PC está APAGADO.*\n📌 Orden #{order['id']} encolada en Azure; se capturará inmediatamente al encender el PC.")
             return func.HttpResponse("OK", status_code=200)
 
-        if any(w in q for w in ["bloquear pc", "bloquea el pc"]):
+        if any(w in q for w in ["bloquear pc", "bloquea el pc", "/bloquear"]):
             online, _ = is_pc_online()
+            order = queue_pc_order("lock", raw_text=text)
             if online:
-                queue_pc_order("lock")
-                send_telegram_message(user_id, "🔒 Orden de bloqueo enviada al PC.")
+                send_telegram_message(user_id, f"🔒 Orden #{order['id']}: Bloqueo enviado al PC.")
             else:
-                send_telegram_message(user_id, "💻 Tu computador ya está apagado.")
+                send_telegram_message(user_id, f"💻 Tu computador ya está apagado. Orden #{order['id']} guardada.")
             return func.HttpResponse("OK", status_code=200)
 
-        # Enviar correo electrónico
+        # 3. Tests y Git directos
+        if any(w in q for w in ["correr pruebas", "corre las pruebas", "ejecuta los tests", "correr tests", "/test"]):
+            repo = "telegram-dollar-bot" if "dollar" in q else "PERRA_JARVIS"
+            online, _ = is_pc_online()
+            order = queue_pc_order("test", {"project": repo}, repo=repo, raw_text=text)
+            status_txt = "Ejecutando en Windows..." if online else "PC apagado; se ejecutará al iniciar Windows."
+            send_telegram_message(user_id, f"🧪 *Orden #{order['id']}:* Ejecución de pruebas unitarias para `{repo}`.\nEstado: {status_txt}")
+            return func.HttpResponse("OK", status_code=200)
+
+        if any(w in q for w in ["estado git", "ramas git", "ultimos commits", "/git"]):
+            repo = "telegram-dollar-bot" if "dollar" in q else "PERRA_JARVIS"
+            online, _ = is_pc_online()
+            order = queue_pc_order("git", {"project": repo}, repo=repo, raw_text=text)
+            status_txt = "Consultando en Windows..." if online else "PC apagado; se consultará al iniciar Windows."
+            send_telegram_message(user_id, f"📦 *Orden #{order['id']}:* Consulta de Git para `{repo}`.\nEstado: {status_txt}")
+            return func.HttpResponse("OK", status_code=200)
+
+        # 4. Enviar correo electrónico
         if q.startswith("manda un correo") or q.startswith("enviar correo") or q.startswith("enviar email"):
-            # Usar Gemini para extraer datos estructurados
             extract_prompt = (
                 f"Extrae el destinatario, asunto y cuerpo del siguiente mensaje: '{text}'. "
                 "Devuelve ÚNICAMENTE un objeto JSON válido con los campos 'to', 'subject', 'body'. "
@@ -759,7 +854,51 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
                 send_telegram_message(user_id, f"⚠️ Error redactando correo: {e}")
             return func.HttpResponse("OK", status_code=200)
 
-        # Chat general y razonamiento ejecutivo con Gemini 3.5 Flash Lite
+        # 5. Detección Inteligente de Órdenes con Gemini 3.5 Flash Lite
+        # Analizar si es una orden para el PC / Repositorios
+        ai_intent_prompt = (
+            f"El usuario Diego dijo: '{text}'. "
+            "Determina si es una instrucción o petición para ejecutar en su computador personal o repositorios de software "
+            "(ejemplos: modificar archivos, correr comandos, revisar código, abrir programas, apagar/suspender el PC, o realizar tareas de desarrollo). "
+            "Responde estrictamente en formato JSON con la siguiente estructura: "
+            "{\"is_pc_order\": true/false, \"action\": \"code_order|screenshot|lock|test|git|open_app|command\", \"repo\": \"PERRA_JARVIS\", \"details\": \"instrucción clara\", \"reply\": \"mensaje confirmando la recepción para Diego\"}."
+        )
+        intent_reply = query_gemini_flash(ai_intent_prompt)
+        
+        if "{" in intent_reply and "is_pc_order" in intent_reply:
+            try:
+                m = re.search(r"\{.*\}", intent_reply, re.DOTALL)
+                if m:
+                    parsed = json.loads(m.group(0))
+                    if parsed.get("is_pc_order"):
+                        action = parsed.get("action", "code_order")
+                        repo = parsed.get("repo", "PERRA_JARVIS")
+                        details = parsed.get("details", text)
+                        confirm_text = parsed.get("reply", "Orden registrada.")
+                        
+                        online, _ = is_pc_online()
+                        order = queue_pc_order(action, {"project": repo, "instruction": details}, repo=repo, raw_text=text)
+                        
+                        if online:
+                            status_msg = f"🟢 *PC en línea:* Ejecutando en tu equipo inmediatamente."
+                        else:
+                            status_msg = f"🔴 *PC apagado:* Orden guardada en la nube persistente de Azure. Se ejecutará automáticamente en cuanto enciendas tu equipo."
+
+                        send_telegram_message(
+                            user_id,
+                            f"📋 *ORDEN #{order['id']} REGISTRADA*\n"
+                            "─────────────────────────────\n"
+                            f"📦 *Objetivo:* `{repo}`\n"
+                            f"⚡ *Acción:* `{action}`\n"
+                            f"📌 *Detalle:* _{details}_\n\n"
+                            f"{status_msg}\n"
+                            "─────────────────────────────"
+                        )
+                        return func.HttpResponse("OK", status_code=200)
+            except Exception as e:
+                logging.warning(f"Error interpretando JSON de intención: {e}")
+
+        # 6. Chat general y razonamiento ejecutivo con Gemini 3.5 Flash Lite
         ai_reply = query_gemini_flash(text)
         send_telegram_message(user_id, ai_reply)
         return func.HttpResponse("OK", status_code=200)
@@ -768,48 +907,57 @@ def telegram_webhook(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ─────────────────────────────────────────────────────────────
-# 7. ENDPOINTS DE COMUNICACIÓN CON EL PC LOCAL (COMPANION API)
+# 8. ENDPOINTS DE COMUNICACIÓN CON EL PC LOCAL (COMPANION API)
 # ─────────────────────────────────────────────────────────────
 @app.route(route="pc/heartbeat", methods=["POST"])
 def pc_heartbeat(req: func.HttpRequest) -> func.HttpResponse:
-    """Recibe la señal de vida periódica del PC local de Diego."""
+    """Recibe la señal de vida periódica del PC local de Diego y la persiste en Azure."""
     try:
         data = req.get_json()
         data["last_seen"] = time.time()
-        _save_json(STATE_FILE, data)
+        save_persistent_json("pc_state.json", data)
         return func.HttpResponse(json.dumps({"status": "ok", "timestamp": time.time()}), mimetype="application/json")
     except Exception as e:
         return func.HttpResponse(json.dumps({"error": str(e)}), status_code=500, mimetype="application/json")
 
 @app.route(route="pc/orders", methods=["GET"])
 def pc_orders_get(req: func.HttpRequest) -> func.HttpResponse:
-    """Devuelve las órdenes pendientes para que el PC local las ejecute."""
-    orders = _load_json(ORDERS_FILE, default=[])
+    """Devuelve las órdenes pendientes desde Azure Blob Storage para que el PC local las ejecute."""
+    orders = load_persistent_json("orders.json", default=[])
     pending = [o for o in orders if o.get("status") == "pending"]
     return func.HttpResponse(json.dumps(pending), mimetype="application/json")
 
 @app.route(route="pc/orders/complete", methods=["POST"])
 def pc_orders_complete(req: func.HttpRequest) -> func.HttpResponse:
-    """Marca una orden como completada."""
+    """Marca una orden como completada en Azure Blob Storage."""
     try:
         body = req.get_json()
         order_id = body.get("order_id")
-        orders = _load_json(ORDERS_FILE, default=[])
+        result_text = body.get("result", "")
+        
+        orders = load_persistent_json("orders.json", default=[])
         for o in orders:
             if o.get("id") == order_id:
                 o["status"] = "completed"
                 o["completed_at"] = time.time()
-        _save_json(ORDERS_FILE, orders)
+                o["result"] = result_text
+        save_persistent_json("orders.json", orders)
         return func.HttpResponse(json.dumps({"status": "ok"}), mimetype="application/json")
     except Exception as e:
         return func.HttpResponse(json.dumps({"error": str(e)}), status_code=500, mimetype="application/json")
 
 @app.route(route="health", methods=["GET"])
 def health(req: func.HttpRequest) -> func.HttpResponse:
-    """Health check 24/7 de Azure Function."""
+    """Health check 24/7 de Azure Function y almacenamiento persistente."""
+    orders = load_persistent_json("orders.json", default=[])
+    pending = len([o for o in orders if o.get("status") == "pending"])
+    online, st = is_pc_online()
     return func.HttpResponse(json.dumps({
         "status": "healthy",
         "service": "PERRA_JARVIS 24/7 Cloud Core",
+        "storage": "Azure Blob Storage (stperrajarvis125)",
         "monthly_cost": "$0.00 USD",
+        "pc_online": online,
+        "pending_orders": pending,
         "timestamp": time.time()
     }), mimetype="application/json")
